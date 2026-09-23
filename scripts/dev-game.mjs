@@ -17,6 +17,33 @@ const childCsp = "default-src 'none'; script-src 'self'; style-src 'self' 'unsaf
 const html = (name, title, child = false) => `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${child ? `<meta http-equiv="Content-Security-Policy" content="${childCsp}">` : ''}<title>${escapeHtml(title)}</title><link rel="stylesheet" href="./${name}.css"></head><body><main id="root"></main><script src="./${name}.js"></script></body></html>
 `;
+// Dev/test-only runtime host: grants instant play to the SDK's sample identity.
+// Uses the same ConnectedGameHost gate, so ordering/eligibility logic is unchanged;
+// only the read client answers with the sample Friend instead of a live network.
+const testModeHost = `
+import { ConnectedGameHost } from '@rarefriends/friendsdk/runtime';
+import { GENERATION_SPRITE_MANIFEST } from '@rarefriends/friendsdk/sprites';
+const TEST_ACCOUNT = '0x1111111111111111111111111111111111111111';
+const FRIEND_WALLET = '0x3333333333333333333333333333333333333333';
+const FRIEND_ID = 7730n;
+const FRIEND = Object.freeze({ id: FRIEND_ID, label: 'Friend #7730', kind: 'owned', walletAddress: FRIEND_WALLET });
+const testPublicClient = {
+  async getChainId() { return 4663; },
+  async getBlockNumber() { return 100n; },
+  async readContract({ address, functionName }) {
+    if (address.toLowerCase() !== GENERATION_SPRITE_MANIFEST.generations.toLowerCase()) throw new Error('Test mode only reads the pinned collection.');
+    if (functionName === 'ownerOf') return TEST_ACCOUNT;
+    if (functionName === 'generation') return 1n;
+    if (functionName === 'tokenBoundAccount') return FRIEND_WALLET;
+    if (functionName === 'balanceOf') return 1n;
+    throw new Error('Unsupported test-mode read: ' + functionName);
+  },
+};
+function TestHost() {
+  return <div className="rf-testmode-host"><div className="rf-testmode-ribbon" role="status">TEST MODE · mocked Friend #{FRIEND_ID} · simulated RF</div>
+  <ConnectedGameHost definition={definition} frameUrl="./game.html" account={TEST_ACCOUNT} chainId={4663} publicClient={testPublicClient} selectedFriend={FRIEND} /></div>;
+}
+createRoot(document.getElementById('root')).render(<TestHost/>);`;
 const outputManifest = '.friendsdk-output.json';
 const standardOutputs = new Set(['index.html', 'game.html', 'runtime.js', 'game.js', 'runtime.css', 'game.css', 'layout.css', 'game-layout.css']);
 const generatedName = name => typeof name === 'string' && (standardOutputs.has(name) ||
@@ -76,8 +103,9 @@ export async function readGameDeployment(input) {
 }
 
 /** Bundle a game component with the SDK runtime. Only generated files go in outdir. */
-export async function buildGame(gameDirectory, { outdir = path.join(gameDirectory, '.friendsdk'), watch = false, deployment } = {}) {
+export async function buildGame(gameDirectory, { outdir = path.join(gameDirectory, '.friendsdk'), watch = false, deployment, testMode = false } = {}) {
   const liveDeployment = deployment === undefined ? undefined : await readGameDeployment(deployment);
+  if (testMode && deployment !== undefined) throw new Error('Test mode cannot combine with a live deployment.');
   const directory = await realpath(path.resolve(gameDirectory));
   outdir = path.resolve(outdir);
   const definitionPath = path.join(directory, 'game.json');
@@ -142,7 +170,9 @@ import '@rarefriends/friendsdk/frame.css';
 import '@rarefriends/friendsdk/runtime.css';
 const definition = parseChanceGame(gameJson);`;
   const host = await context({ ...common, outfile: path.join(outdir, 'runtime.js'), stdin: {
-    resolveDir: directory, sourcefile: 'runtime.tsx', loader: 'tsx', contents: `${shared}
+    resolveDir: directory, sourcefile: 'runtime.tsx', loader: 'tsx', contents: testMode
+      ? `${shared}${hostStyleImport}${testModeHost}`
+      : `${shared}
 import {GameHost} from '@rarefriends/friendsdk/runtime';
 ${hostStyleImport}
 const deployment = ${JSON.stringify(liveDeployment) ?? 'undefined'};
@@ -159,7 +189,8 @@ createRoot(document.getElementById('root')).render(<GameSession definition={defi
     } });
     await Promise.all([host.rebuild(), child.rebuild()]);
     // Separate styles keep the game document full-size inside its single SDK frame.
-    await writeFile(path.join(outdir, 'layout.css'), '*{box-sizing:border-box}html,body{margin:0;font-family:ui-monospace,monospace;background:#eee}#root{max-width:var(--rf-game-max-width,960px);margin:auto}');
+    await writeFile(path.join(outdir, 'layout.css'), '*{box-sizing:border-box}html,body{margin:0;font-family:ui-monospace,monospace;background:#eee}#root{max-width:var(--rf-game-max-width,960px);margin:auto}'
+      + (testMode ? '.rf-testmode-ribbon{position:fixed;top:74px;right:8px;z-index:20;background:rgba(27,25,47,.94);color:#ffd75e;border:1px solid #ffd75e;border-radius:999px;padding:5px 12px;font:600 11px/1.4 ui-monospace,monospace;letter-spacing:.05em;box-shadow:0 2px 8px rgba(0,0,0,.25)}' : ''));
     await writeFile(path.join(outdir, 'game-layout.css'), '*{box-sizing:border-box}html,body,#root{width:100%;height:100%;margin:0;overflow:hidden;font-family:ui-monospace,monospace}');
     await writeFile(path.join(outdir, 'index.html'), html('runtime', definition.name).replace('</head>', '<link rel="stylesheet" href="./layout.css"></head>'));
     await writeFile(path.join(outdir, 'game.html'), html('game', definition.name, true).replace('</head>', '<link rel="stylesheet" href="./game-layout.css"></head>'));
@@ -196,17 +227,18 @@ export function createGameServer(outdir) {
 
 async function main() {
   const args = process.argv.slice(2), command = args.shift() ?? 'dev';
-  const usage = 'Usage: friendsdk init|dev|build|check|test <game-directory>\nDev/build: --outdir directory --deployment public-deployment.json\nDev: --host 127.0.0.1 --port 4173\nTest (automated): --width 960 --screenshot image.png';
+  const usage = 'Usage: friendsdk init|dev|build|check|test <game-directory>\nDev/build: --outdir directory --deployment public-deployment.json --test-mode\nDev: --host 127.0.0.1 --port 4173\nTest (automated): --width 960 --screenshot image.png';
   if (command === '--help') { console.log(usage); return; }
   if (command === '--version') { console.log(packageJson.version); return; }
   if (!['init', 'dev', 'build', 'check', 'test'].includes(command)) throw new Error(usage);
-  let directory, deploymentPath, outdir, screenshot, width = 960, host = '127.0.0.1', port = 4173;
-  const allowed = command === 'dev' ? ['--deployment', '--outdir', '--host', '--port']
-    : command === 'build' ? ['--deployment', '--outdir'] : command === 'test' ? ['--width', '--screenshot'] : [];
+  let directory, deploymentPath, outdir, screenshot, width = 960, host = '127.0.0.1', port = 4173, testMode = false;
+  const allowed = command === 'dev' ? ['--deployment', '--outdir', '--host', '--port', '--test-mode']
+    : command === 'build' ? ['--deployment', '--outdir', '--test-mode'] : command === 'test' ? ['--width', '--screenshot'] : [];
   const flags = new Set();
   while (args.length) {
     const arg = args.shift();
     if (!arg.startsWith('--')) { if (directory !== undefined) throw new Error(usage); directory = arg; continue; }
+    if (arg === '--test-mode') { flags.add(arg); testMode = true; continue; }
     if (!allowed.includes(arg) || flags.has(arg)) throw new Error(usage);
     flags.add(arg);
     const value = args.shift();
@@ -246,11 +278,11 @@ async function main() {
     return;
   }
   const deployment = deploymentPath ? JSON.parse(await readFile(path.resolve(deploymentPath), 'utf8')) : undefined;
-  const build = await buildGame(directory, { watch: command === 'dev', deployment, outdir });
+  const build = await buildGame(directory, { watch: command === 'dev', deployment, testMode, outdir });
   if (command === 'build') { console.log(`Built ${build.outdir}`); return; }
   const server = createGameServer(build.outdir);
   server.on('error', async error => { console.error(error.message); await build.close(); process.exitCode = 1; });
-  server.listen(port, host, () => console.log(`${deployment ? 'Live game' : 'Game preview'}: http://${host.includes(':') ? `[${host}]` : host}:${port} — refresh after edits.`));
+  server.listen(port, host, () => console.log(`${deployment ? 'Live game' : testMode ? 'Game test mode' : 'Game preview'}: http://${host.includes(':') ? `[${host}]` : host}:${port} — refresh after edits.`));
   let closing = false;
   const close = async () => {
     if (closing) return;
