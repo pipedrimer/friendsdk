@@ -1,21 +1,30 @@
 :root {
   --rf-host-aspect: 960 / 640;
+  /* Fit the entire frame in the viewport: cap width so 3:2 height stays ≤ 100dvh. */
+  --rf-game-max-width: min(960px, calc(100dvh * 1.5));
+  --rf-game-aspect-ratio: 3 / 2;
 }
 
+html,
 body {
   margin: 0;
   padding: 0;
+  width: 100%;
+  height: 100%;
   background: #120a24;
+}
+
+body {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: 100vh;
+  overflow: hidden;
 }
 
 #root {
   width: 100%;
-  max-width: 960px;
-  min-height: 640px;
+  max-width: var(--rf-game-max-width);
   display: flex;
   flex-direction: column;
+  justify-content: center;
 }

@@ -40,7 +40,7 @@ const testPublicClient = {
   },
 };
 function TestHost() {
-  return <div className="rf-testmode-host"><div className="rf-testmode-ribbon" role="status">TEST MODE · mocked Friend #{FRIEND_ID} · simulated RF</div>
+  return <div className="rf-testmode-host"><div className="rf-testmode-ribbon" role="status">TEST MODE</div>
   <ConnectedGameHost definition={definition} frameUrl="./game.html" account={TEST_ACCOUNT} chainId={4663} publicClient={testPublicClient} selectedFriend={FRIEND} /></div>;
 }
 createRoot(document.getElementById('root')).render(<TestHost/>);`;
@@ -190,7 +190,7 @@ createRoot(document.getElementById('root')).render(<GameSession definition={defi
     await Promise.all([host.rebuild(), child.rebuild()]);
     // Separate styles keep the game document full-size inside its single SDK frame.
     await writeFile(path.join(outdir, 'layout.css'), '*{box-sizing:border-box}html,body{margin:0;font-family:ui-monospace,monospace;background:#eee}#root{max-width:var(--rf-game-max-width,960px);margin:auto}'
-      + (testMode ? '.rf-testmode-ribbon{position:fixed;top:74px;right:8px;z-index:20;background:rgba(27,25,47,.94);color:#ffd75e;border:1px solid #ffd75e;border-radius:999px;padding:5px 12px;font:600 11px/1.4 ui-monospace,monospace;letter-spacing:.05em;box-shadow:0 2px 8px rgba(0,0,0,.25)}' : ''));
+      + (testMode ? '.rf-testmode-ribbon{position:fixed;top:8px;right:8px;z-index:20;max-width:72vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:rgba(27,25,47,.8);color:#ffd75e;border:1px solid #ffd75e;font:600 9px/1.3 ui-monospace,monospace;letter-spacing:.04em;padding:2px 6px;box-shadow:0 1px 4px rgba(0,0,0,.25)}' : ''));
     await writeFile(path.join(outdir, 'game-layout.css'), '*{box-sizing:border-box}html,body,#root{width:100%;height:100%;margin:0;overflow:hidden;font-family:ui-monospace,monospace}');
     await writeFile(path.join(outdir, 'index.html'), html('runtime', definition.name).replace('</head>', '<link rel="stylesheet" href="./layout.css"></head>'));
     await writeFile(path.join(outdir, 'game.html'), html('game', definition.name, true).replace('</head>', '<link rel="stylesheet" href="./game-layout.css"></head>'));

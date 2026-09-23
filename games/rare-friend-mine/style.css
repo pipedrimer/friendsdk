@@ -173,6 +173,13 @@ body, html {
   image-rendering: pixelated;
 }
 
+/* Scale the entire game UI to 80%. Applied on the document root so every
+   container, tile, dialog (including fixed-position overlays) and the app
+   background shrink together from the outermost container. */
+html {
+  zoom: 0.8;
+}
+
 button, input, select, textarea {
   font-family: var(--font-mono);
   font-size: inherit;
