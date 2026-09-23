@@ -216,6 +216,26 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
       );
       const revealedIds = [...state.revealedTileIds, tileId];
       const safeDigsAfter = state.safeDigCount + 1;
+      const totalSafeTiles = MINES_CONFIG.totalTiles - state.mineCount;
+      const boardCleared = safeDigsAfter >= totalSafeTiles;
+
+      // A full clear leaves only mines on the board — there is no longer any
+      // feasible safe pick, so the run must end by auto-banking the peak haul.
+      const settleSafeDig = (next: MineRun, haulRf: bigint, findNote: string): MineRun => {
+        if (!boardCleared) return next;
+        return {
+          ...next,
+          phase: "complete",
+          atRiskRf: 0n,
+          bankedRf: haulRf,
+          availableRf: next.availableRf + haulRf,
+          completedAt: Date.now(),
+          history: [
+            ...next.history,
+            `FULL CLEAR! Every safe tile (${totalSafeTiles}) dug through. ${findNote} Auto-banked ${formatRf(haulRf)} RF.`,
+          ],
+        };
+      };
 
       // Growing per-round multiplier. Every safe dig applies a NEW round
       // multiplier (round 1, round 2, ...) that grows monotonically, and the
@@ -247,30 +267,34 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         const haulBoard = updatedBoard.map((t) =>
           t.id === tileId ? ({ ...t, haulRf: newAtRisk } as MineTile) : t,
         );
-        return {
-          ...state,
-          phase: "playing",
-          atRiskRf: newAtRisk,
-          currentMultiplierBps: newCurrentMultiplierBps,
-          nextMultiplierBps: nextRoundBps,
-          safeDigCount: safeDigsAfter,
-          depth: nextDepth(safeDigsAfter),
-          boostDigsRemaining: newBoost,
-          board: haulBoard,
-          revealedTileIds: revealedIds,
-          selectedTileIndex: null,
-          lastResolution: {
-            type: "rf",
-            tileId,
-            haulRf: newAtRisk,
-            wasBoosted: isBoosted,
-            multiplierBps: appliedRoundBps,
+        return settleSafeDig(
+          {
+            ...state,
+            phase: "playing",
+            atRiskRf: newAtRisk,
+            currentMultiplierBps: newCurrentMultiplierBps,
+            nextMultiplierBps: nextRoundBps,
+            safeDigCount: safeDigsAfter,
+            depth: nextDepth(safeDigsAfter),
+            boostDigsRemaining: newBoost,
+            board: haulBoard,
+            revealedTileIds: revealedIds,
+            selectedTileIndex: null,
+            lastResolution: {
+              type: "rf",
+              tileId,
+              haulRf: newAtRisk,
+              wasBoosted: isBoosted,
+              multiplierBps: appliedRoundBps,
+            },
+            history: [
+              ...state.history,
+              `Dug tile #${tileId}: Safe seam! Haul grew to ${formatRf(newAtRisk)} RF (round ${safeDigsAfter})${isBoosted ? " [Boosted!]" : ""}.`,
+            ],
           },
-          history: [
-            ...state.history,
-            `Dug tile #${tileId}: Safe seam! Haul grew to ${formatRf(newAtRisk)} RF (round ${safeDigsAfter})${isBoosted ? " [Boosted!]" : ""}.`,
-          ],
-        };
+          newAtRisk,
+          "Ore seam cleared the shaft.",
+        );
       }
 
       // 2. Resource Ore Tile (collectible — never adds RF to the bank)
@@ -286,43 +310,11 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           t.id === tileId ? ({ ...t, haulRf: newAtRisk } as MineTile) : t,
         );
 
-        return {
-          ...state,
-          phase: "playing",
-          resources: [...state.resources, reward],
-          atRiskRf: newAtRisk,
-          currentMultiplierBps: newCurrentMultiplierBps,
-          nextMultiplierBps: nextRoundBps,
-          safeDigCount: safeDigsAfter,
-          depth: nextDepth(safeDigsAfter),
-          boostDigsRemaining: newBoost,
-          board: haulBoard,
-          revealedTileIds: revealedIds,
-          selectedTileIndex: null,
-          lastResolution: {
-            type: "resource",
-            tileId,
-            resource: reward,
-            haulRf: newAtRisk,
-            multiplierBps: appliedRoundBps,
-          },
-          history: [
-            ...state.history,
-            `Discovered rare ore: ${tile.name}! Haul grew to ${formatRf(newAtRisk)} RF.`,
-          ],
-        };
-      }
-
-      // 3. Special Cache Tile (rare find: +1 Shield or Boost charges)
-      if (tile.kind === "special") {
-        const haulBoard = updatedBoard.map((t) =>
-          t.id === tileId ? ({ ...t, haulRf: newAtRisk } as MineTile) : t,
-        );
-        if (tile.specialType === "shield") {
-          return {
+        return settleSafeDig(
+          {
             ...state,
             phase: "playing",
-            shieldCharges: state.shieldCharges + 1,
+            resources: [...state.resources, reward],
             atRiskRf: newAtRisk,
             currentMultiplierBps: newCurrentMultiplierBps,
             nextMultiplierBps: nextRoundBps,
@@ -333,43 +325,87 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
             revealedTileIds: revealedIds,
             selectedTileIndex: null,
             lastResolution: {
-              type: "special",
+              type: "resource",
               tileId,
-              specialType: "shield",
+              resource: reward,
               haulRf: newAtRisk,
               multiplierBps: appliedRoundBps,
             },
             history: [
               ...state.history,
-              `Found a Shield cache! +1 charge. Haul grew to ${formatRf(newAtRisk)} RF.`,
+              `Discovered rare ore: ${tile.name}! Haul grew to ${formatRf(newAtRisk)} RF.`,
             ],
-          };
+          },
+          newAtRisk,
+          "The last vein is yours.",
+        );
+      }
+
+      // 3. Special Cache Tile (rare find: +1 Shield or Boost charges)
+      if (tile.kind === "special") {
+        const haulBoard = updatedBoard.map((t) =>
+          t.id === tileId ? ({ ...t, haulRf: newAtRisk } as MineTile) : t,
+        );
+        if (tile.specialType === "shield") {
+          return settleSafeDig(
+            {
+              ...state,
+              phase: "playing",
+              shieldCharges: state.shieldCharges + 1,
+              atRiskRf: newAtRisk,
+              currentMultiplierBps: newCurrentMultiplierBps,
+              nextMultiplierBps: nextRoundBps,
+              safeDigCount: safeDigsAfter,
+              depth: nextDepth(safeDigsAfter),
+              boostDigsRemaining: newBoost,
+              board: haulBoard,
+              revealedTileIds: revealedIds,
+              selectedTileIndex: null,
+              lastResolution: {
+                type: "special",
+                tileId,
+                specialType: "shield",
+                haulRf: newAtRisk,
+                multiplierBps: appliedRoundBps,
+              },
+              history: [
+                ...state.history,
+                `Found a Shield cache! +1 charge. Haul grew to ${formatRf(newAtRisk)} RF.`,
+              ],
+            },
+            newAtRisk,
+            "Shield cache was the last safe tile.",
+          );
         }
 
-        return {
-          ...state,
-          phase: "playing",
-          boostDigsRemaining: newBoost + RULES.boostDigs,
-          atRiskRf: newAtRisk,
-          currentMultiplierBps: newCurrentMultiplierBps,
-          nextMultiplierBps: nextRoundBps,
-          safeDigCount: safeDigsAfter,
-          depth: nextDepth(safeDigsAfter),
-          board: haulBoard,
-          revealedTileIds: revealedIds,
-          selectedTileIndex: null,
-          lastResolution: {
-            type: "special",
-            tileId,
-            specialType: "boost",
-            haulRf: newAtRisk,
-            multiplierBps: appliedRoundBps,
+        return settleSafeDig(
+          {
+            ...state,
+            phase: "playing",
+            boostDigsRemaining: newBoost + RULES.boostDigs,
+            atRiskRf: newAtRisk,
+            currentMultiplierBps: newCurrentMultiplierBps,
+            nextMultiplierBps: nextRoundBps,
+            safeDigCount: safeDigsAfter,
+            depth: nextDepth(safeDigsAfter),
+            board: haulBoard,
+            revealedTileIds: revealedIds,
+            selectedTileIndex: null,
+            lastResolution: {
+              type: "special",
+              tileId,
+              specialType: "boost",
+              haulRf: newAtRisk,
+              multiplierBps: appliedRoundBps,
+            },
+            history: [
+              ...state.history,
+              `Found a Boost cache! +${RULES.boostDigs} boosted digs. Haul grew to ${formatRf(newAtRisk)} RF.`,
+            ],
           },
-          history: [
-            ...state.history,
-            `Found a Boost cache! +${RULES.boostDigs} boosted digs. Haul grew to ${formatRf(newAtRisk)} RF.`,
-          ],
-        };
+          newAtRisk,
+          "Boost cache was the last safe tile.",
+        );
       }
 
       // 4. Mine Tile
@@ -402,29 +438,33 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           const boostedMultiplierBps = calculateGreenMineMultiplier(state.currentMultiplierBps);
           const doubledHaul = calculateStepHaul(state.stakeRf, boostedMultiplierBps);
 
-          return {
-            ...state,
-            phase: "playing",
-            atRiskRf: doubledHaul,
-            currentMultiplierBps: boostedMultiplierBps,
-            nextMultiplierBps: nextRoundBps,
-            safeDigCount: safeDigsAfter,
-            depth: nextDepth(safeDigsAfter),
-            board: updatedBoard,
-            revealedTileIds: revealedIds,
-            selectedTileIndex: null,
-            lastResolution: {
-              type: "mine",
-              tileId,
-              mineType: "green",
-              wasShielded: false,
-              lostRf: 0n,
+          return settleSafeDig(
+            {
+              ...state,
+              phase: "playing",
+              atRiskRf: doubledHaul,
+              currentMultiplierBps: boostedMultiplierBps,
+              nextMultiplierBps: nextRoundBps,
+              safeDigCount: safeDigsAfter,
+              depth: nextDepth(safeDigsAfter),
+              board: updatedBoard,
+              revealedTileIds: revealedIds,
+              selectedTileIndex: null,
+              lastResolution: {
+                type: "mine",
+                tileId,
+                mineType: "green",
+                wasShielded: false,
+                lostRf: 0n,
+              },
+              history: [
+                ...state.history,
+                `Lucky Green Mine! Haul DOUBLED to ${formatRf(doubledHaul)} RF (${formatMultiplier(boostedMultiplierBps)}x)!`,
+              ],
             },
-            history: [
-              ...state.history,
-              `Lucky Green Mine! Haul DOUBLED to ${formatRf(doubledHaul)} RF (${formatMultiplier(boostedMultiplierBps)}x)!`,
-            ],
-          };
+            doubledHaul,
+            "That green mine was the last safe tile.",
+          );
         }
 
         // Any unshielded hazardous mine detonates -> total loss of haul

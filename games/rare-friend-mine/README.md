@@ -50,6 +50,13 @@ The per-round multipliers are honest fair odds per survival — a difficulty's p
 
 Any hazardous mine (red, yellow, purple, or blue) detonating without a Shield is a **live-ending wipe**. There is **no second chance** — bank early or risk everything.
 
+> **Full clear ends the run automatically.** When every safe tile has been dug
+> (only mines remain), the whole haul is **auto-banked at the peak multiplier** —
+> there is no longer any feasible safe pick, so the run concludes by securing the
+> jackpot. This matters most on **Inferno (24 mines / 25)**, where the single safe
+> tile IS the full clear: finding it on the first dig banks the ×24.38 peak and
+> ends the run immediately.
+
 ### 4. Tactical Utilities & Rare Finds
 - **Scanner [S]** (1 RF): Directional acoustic sensor providing hazard or treasure clues without revealing the tile.
 - **Shield** (rare find — special cache): Absorbs and neutralizes the next mine detonation encountered — the only thing standing between you and a total wipe. **Not purchasable.**
@@ -95,7 +102,7 @@ node scripts/dev-game.mjs build games/rare-friend-mine
 # Typecheck the game sources
 npx tsc -p games/rare-friend-mine/tsconfig.json --noEmit
 
-# Engine unit tests (24 deterministic cases)
+# Engine unit tests (26 deterministic cases)
 node games/rare-friend-mine/tests/run-tests.mjs
 
 # Economy Monte Carlo simulation (20,000 default runs)

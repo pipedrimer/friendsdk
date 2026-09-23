@@ -294,11 +294,22 @@ button:focus-visible, input:focus-visible {
   font-size: 14px;
   font-weight: 700;
   color: var(--ink);
-  white-space: nowrap;
   letter-spacing: 0.02em;
   display: flex;
   align-items: baseline;
+  flex-wrap: wrap;
+  row-gap: 0;
   gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.stat-value > * {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .stat-sub {
@@ -306,7 +317,10 @@ button:focus-visible, input:focus-visible {
   font-size: 9px;
   font-weight: 600;
   color: var(--ink-60);
-  white-space: nowrap;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tool-chip {
@@ -1168,6 +1182,60 @@ button:focus-visible, input:focus-visible {
   overflow: hidden;
 }
 
+/* Revealed tile content fits inside the square tile: icon + label + RF value
+   all visible at any board size. Text never escapes the tile. */
+.mine-tile.revealed .tile-inner {
+  gap: 1px;
+}
+
+.mine-tile.revealed .tile-icon {
+  flex: none;
+  display: inline-flex;
+  font-size: 14px;
+  line-height: 1;
+}
+
+.mine-tile.revealed .tile-value,
+.mine-tile.revealed .tile-sub {
+  flex: none;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.1;
+  padding: 0 1px;
+}
+
+.mine-tile.revealed .tile-value {
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.mine-tile.revealed .tile-sub {
+  font-size: 8px;
+  font-weight: 700;
+  color: inherit;
+  opacity: 0.85;
+}
+
+/* Ore names are multiword ("Moon Ore", "Cosmic Ore") — mono keeps them legible
+   and compact at a small size so the RF amount below always fits. */
+.mine-tile.revealed.tile-ore .tile-value {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+.mine-tile.revealed.tile-special .tile-value {
+  font-size: 9px;
+}
+
+.mine-tile.revealed.tile-mine .tile-value {
+  font-size: 9px;
+}
+
 /* Scan indicator badges on unrevealed tiles */
 .scan-indicator-badge {
   display: flex;
@@ -1229,7 +1297,7 @@ button:focus-visible, input:focus-visible {
 
 .mine-tile.revealed.tile-rf .tile-value {
   font-family: var(--font-display);
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 700;
   color: var(--color-emerald);
 }

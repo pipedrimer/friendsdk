@@ -507,4 +507,55 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
     const tier = getDangerTier(5);
     assert.ok(tier.name.length > 0);
   });
+
+  it("25. Full clear auto-banks: digging the last safe tile ends the run at the peak", () => {
+    // Inferno (24 mines / 25) has exactly one safe tile. Digging it on the first
+    // attempt leaves only mines on the board, so the run MUST end by banking the
+    // haul at the start multiplier — never stay "playing" with no safe tile left.
+    let state = createInitialState(1001n);
+    state = mineReducer(state, { type: "SET_MINE_COUNT", count: 24 });
+    state = mineReducer(state, { type: "START_RUN", seed: 7 });
+
+    // Force a deterministic board: tiles 0..23 hazardous mines, tile 24 the only safe RF deposit.
+    for (let i = 0; i < 24; i++) state.board[i] = { id: i, kind: "mine", mineType: "red", revealed: false };
+    state.board[24] = { id: 24, kind: "rf", amount: 1, revealed: false };
+    const startBps = getStartingMultiplier(24);
+
+    state = mineReducer(state, { type: "SELECT_TILE", tileId: 24 });
+    state = mineReducer(state, { type: "FINISH_REVEAL" });
+
+    assert.equal(state.phase, "complete", "Digging the only safe tile must end the run");
+    assert.equal(state.safeDigCount, 1);
+    assert.equal(state.bankedRf, compoundRf(1n * RF_UNIT, [startBps]));
+    assert.equal(state.availableRf, 9n * RF_UNIT + state.bankedRf, "Vault credits the auto-banked peak haul");
+    assert.ok(state.history.some((line) => line.startsWith("FULL CLEAR!")), "History records the full clear");
+    assert.equal(state.completedAt !== undefined, true);
+  });
+
+  it("26. Full clear applies to every difficulty when all safe tiles are dug", () => {
+    for (const count of [5, 7, 10, 15, 20, 24]) {
+      let state = createInitialState(1001n);
+      state = mineReducer(state, { type: "SET_MINE_COUNT", count });
+      state = mineReducer(state, { type: "START_RUN", seed: 11 });
+
+      // Deterministic board: first `count` tiles are hazardous mines, the rest safe RF deposits.
+      const safe = MINES_CONFIG.totalTiles - count;
+      for (let i = 0; i < count; i++) state.board[i] = { id: i, kind: "mine", mineType: "red", revealed: false };
+      for (let i = count; i < MINES_CONFIG.totalTiles; i++) state.board[i] = { id: i, kind: "rf", amount: 1, revealed: false };
+
+      for (let i = count; i < MINES_CONFIG.totalTiles; i++) {
+        if (state.phase !== "playing") break;
+        state = mineReducer(state, { type: "SELECT_TILE", tileId: i });
+        state = mineReducer(state, { type: "FINISH_REVEAL" });
+      }
+
+      assert.equal(state.phase, "complete", `${count} mines: clearing all safe tiles ends the run`);
+      assert.equal(state.safeDigCount, safe);
+      const roundBps = [];
+      for (let step = 1; step <= safe; step++) roundBps.push(calculateRoundMultiplier(count, step));
+      assert.equal(state.bankedRf, compoundRf(1n * RF_UNIT, roundBps), `${count} mines banked exactly the per-step compounding`);
+      const peak = getPeakMultiplier(count);
+      assert.ok(Math.abs(state.currentMultiplierBps - peak) <= peak * 0.0001, `${count} mines current multiplier is within 1bp of the design peak`);
+    }
+  });
 });
