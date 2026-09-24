@@ -173,13 +173,6 @@ body, html {
   image-rendering: pixelated;
 }
 
-/* Scale the entire game UI to 80%. Applied on the document root so every
-   container, tile, dialog (including fixed-position overlays) and the app
-   background shrink together from the outermost container. */
-html {
-  zoom: 0.8;
-}
-
 button, input, select, textarea {
   font-family: var(--font-mono);
   font-size: inherit;
@@ -215,7 +208,9 @@ button:focus-visible, input:focus-visible {
   min-height: 100vh;
   max-width: 960px;
   margin: 0 auto;
-  padding: 8px 12px 48px;
+  /* Extra bottom space keeps the runtime's wallet/Friend toolbar from covering
+     the action bar on small screens where the frame fits the viewport height. */
+  padding: 8px 12px 88px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -1972,7 +1967,7 @@ button:focus-visible, input:focus-visible {
    ========================================================================== */
 @media (max-width: 640px) {
   .rare-friend-mine-app {
-    padding: 6px 8px 12px;
+    padding: 6px 8px 88px;
     gap: 6px;
   }
 
@@ -1999,9 +1994,20 @@ button:focus-visible, input:focus-visible {
   }
 
   .hud-btn-toggle {
-    min-height: 24px;
-    padding: 0 6px;
-    font-size: 9px;
+    min-height: 32px;
+    padding: 0 8px;
+    font-size: 10px;
+  }
+
+  .hud-tier-badge {
+    white-space: normal;
+    text-align: center;
+  }
+
+  .game-title {
+    font-size: 15px;
+    gap: 6px;
+    flex-wrap: wrap;
   }
 
   .mine-delve-layout {
@@ -2011,6 +2017,20 @@ button:focus-visible, input:focus-visible {
 
   .friend-sidebar {
     padding: 8px;
+  }
+
+  .friend-sidebar .friend-avatar-wrapper {
+    width: 72px;
+    height: 72px;
+  }
+
+  .friend-sidebar .friend-pixel-canvas {
+    width: 72px;
+    height: 72px;
+  }
+
+  .friend-sidebar .friend-speech-bubble {
+    font-size: 10px;
   }
 
   .mine-grid-container {
@@ -2025,6 +2045,34 @@ button:focus-visible, input:focus-visible {
 
   .action-btn.btn-bank {
     grid-column: span 2;
+  }
+
+  .action-btn {
+    min-height: 46px;
+  }
+
+  .action-btn.btn-bank {
+    min-height: 50px;
+  }
+
+  .mine-preset-chip,
+  .stake-preset-chip {
+    min-height: 34px;
+    font-size: 11px;
+  }
+
+  .mine-stepper-btn,
+  .stake-stepper-btn {
+    height: 38px;
+    width: 44px;
+  }
+
+  .start-delve-btn {
+    min-height: 54px;
+  }
+
+  .how-to-play-delve-btn {
+    min-height: 42px;
   }
 
   .difficulty-options {
@@ -2042,6 +2090,45 @@ button:focus-visible, input:focus-visible {
 
   .mine-info-row {
     flex-wrap: wrap;
+  }
+
+  /* Short landscape frames: keep the Friend in a slim column beside the board
+     and size the board by the available height instead of the full width. */
+  @media (orientation: landscape) {
+    .mine-delve-layout {
+      grid-template-columns: 88px 1fr;
+      gap: 8px;
+    }
+
+    .friend-sidebar .friend-speech-bubble {
+      display: none;
+    }
+
+    .friend-sidebar .friend-avatar-wrapper {
+      width: 60px;
+      height: 60px;
+    }
+
+    .friend-sidebar .friend-pixel-canvas {
+      width: 60px;
+      height: 60px;
+    }
+
+    .mine-grid-container {
+      width: min(100%, calc(100svh - 150px));
+    }
+  }
+}
+
+/* On touch devices, hover styling can stick after a tap — keep the resting
+   look on the mine tiles between taps. */
+@media (hover: none) {
+  .mine-tile:hover:not(:disabled),
+  .mine-tile:hover:not(:disabled) .tile-coord {
+    background: var(--surface-raised);
+    border-color: var(--ink-60);
+    color: var(--ink);
+    box-shadow: 2px 2px 0 0 var(--ink-30);
   }
 }
 
@@ -2211,5 +2298,297 @@ button:focus-visible, input:focus-visible {
 
   .how-to-play-card {
     max-height: calc(100vh - 16px);
+  }
+}
+
+/* ==========================================================================
+   Gear Locker (durable cosmetics, simulated RF)
+   ========================================================================== */
+.gear-locker-card {
+  width: 100%;
+  max-width: 560px;
+  max-height: calc(100vh - 32px);
+  background: var(--surface);
+  border: var(--rule-thick);
+  box-shadow: var(--shadow-raised-xl);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.gear-locker-body {
+  padding: 12px 14px 6px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--surface);
+}
+
+.gear-preview-strip {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px;
+  border: var(--rule-dashed);
+  background: var(--surface-raised);
+}
+
+.gear-preview-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gear-preview-title {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-cyan);
+  text-transform: uppercase;
+}
+
+.gear-preview-blurb {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink-80);
+}
+
+.gear-preview-blurb strong {
+  color: var(--color-emerald);
+}
+
+.gear-slot-section {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.gear-slot-head {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-violet);
+  text-transform: uppercase;
+  border-bottom: var(--rule-dashed);
+  padding-bottom: 4px;
+}
+
+.gear-item-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.gear-item-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: var(--rule);
+  background: var(--surface-raised);
+}
+
+.gear-item-card[data-owned="true"] {
+  border-color: var(--color-emerald-border);
+}
+
+.gear-swatch {
+  width: 100%;
+  height: 18px;
+  border: 1px solid var(--ink-40);
+  box-shadow: var(--shadow-raised);
+}
+
+.gear-item-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.gear-item-name {
+  font-family: var(--font-display);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.gear-item-blurb {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.4;
+  color: var(--ink-60);
+}
+
+.gear-item-status-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.gear-price {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-gold-text);
+}
+
+.gear-progress {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-60);
+}
+
+.gear-equipped-badge {
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--color-emerald);
+  border: 1px solid var(--color-emerald-border);
+  padding: 2px 6px;
+  background: var(--color-emerald-bg);
+}
+
+.gear-btn-gear {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: var(--rule);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  box-shadow: var(--shadow-raised);
+  cursor: pointer;
+}
+
+.gear-btn-gear:hover:not(:disabled) {
+  background: var(--color-violet);
+  color: var(--color-violet-text);
+  border-color: var(--color-violet-border);
+}
+
+.gear-btn-gear:active:not(:disabled) {
+  box-shadow: var(--shadow-pressed);
+  transform: translate(2px, 2px);
+}
+
+.gear-btn-gear:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.gear-btn-buy {
+  background: var(--color-emerald-bg);
+  color: var(--color-emerald);
+  border-color: var(--color-emerald-border);
+}
+
+.gear-btn-buy:hover:not(:disabled) {
+  background: var(--color-emerald);
+  color: var(--paper);
+  border-color: var(--color-emerald-border);
+}
+
+.gear-note {
+  margin: 0 0 10px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--ink-60);
+}
+
+.gear-note strong {
+  color: var(--ink);
+}
+
+.gear-note .rf-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--color-gold-text);
+}
+
+/* HUD GEAR button NEW badge + pre-run badge */
+.hud-btn-toggle.has-new {
+  background: var(--color-gold-bg);
+  border-color: var(--color-gold-border);
+  color: var(--color-gold-text);
+}
+
+.how-to-play-delve-btn.has-new {
+  background: var(--color-gold-bg);
+  border-color: var(--color-gold-border);
+  color: var(--color-gold-text);
+}
+
+.gear-new-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 3px;
+  border: 1px solid var(--color-gold-border);
+  background: var(--color-gold-text);
+  color: var(--paper);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pre-run-cta-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+
+.pre-run-cta-row .how-to-play-delve-btn {
+  flex: 1;
+}
+
+/* Aura glow ring element around the Friend avatar */
+.friend-cosmetic-aura {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  border-radius: 2px;
+  z-index: 0;
+}
+
+.friend-avatar-wrapper .friend-pixel-canvas {
+  position: relative;
+  z-index: 1;
+}
+
+@media (max-width: 640px) {
+  .gear-locker-card {
+    max-height: calc(100vh - 16px);
+  }
+
+  .gear-item-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+
+  .gear-btn-gear {
+    min-height: 34px;
+  }
+
+  .pre-run-cta-row {
+    flex-direction: column;
   }
 }

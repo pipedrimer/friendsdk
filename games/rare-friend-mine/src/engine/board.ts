@@ -1,5 +1,5 @@
-import type { DifficultyId, MineTile, MineType, ResourceRarity, ScanResult } from "../types/game.js";
-import { DIFFICULTY_MINE_COUNTS, ORES, RULES } from "./rules.js";
+import type { MineTile, MineType, ResourceRarity } from "../types/game.js";
+import { MINES_CONFIG, ORES, RULES } from "./rules.js";
 import { mulberry32, shuffleWithRng } from "./random.js";
 
 /**
@@ -81,22 +81,16 @@ export function rollRareFinds(rng: () => number, safeCount: number): {
 }
 
 /**
- * Generate a 5x5 board for the given seed and selected mine count (or difficulty ID).
+ * Generate a 5x5 board for the given seed and selected mine count (5..24).
  * Dynamically scales mines and safe tile distribution according to the exact chosen count.
  * Rare finds (green mine, shields, boosts, ores) are rolled via rollRareFinds.
  */
-export function createBoard(
-  seed: number,
-  minesOrDifficulty: number | DifficultyId = 5,
-): MineTile[] {
+export function createBoard(seed: number, mineCount: number = 5): MineTile[] {
   const rng = mulberry32(seed);
 
-  const mineCount =
-    typeof minesOrDifficulty === "number"
-      ? Math.min(Math.max(minesOrDifficulty, 1), 24)
-      : (DIFFICULTY_MINE_COUNTS[minesOrDifficulty] ?? 5);
+  const clampedMines = Math.min(Math.max(mineCount, MINES_CONFIG.minMines), MINES_CONFIG.maxMines);
 
-  const safeCount = RULES.totalTiles - mineCount;
+  const safeCount = RULES.totalTiles - clampedMines;
 
   // 1. Mines
   const mineTiles: MineTile[] = buildMinePlan(mineCount).map((type) => ({
@@ -162,66 +156,4 @@ export function createBoard(
     ...tile,
     id: index,
   }));
-}
-
-/**
- * Scanner gives directional hint without revealing the tile.
- * The scanner is deliberately imperfect (e.g. 75% accurate, 25% ambiguous).
- */
-export function scanTileClue(tile: MineTile, rng: () => number): ScanResult {
-  const roll = rng();
-  const tileId = tile.id;
-
-  if (tile.kind === "mine") {
-    if (tile.mineType === "green") {
-      // Lucky mine emits emerald energy
-      return {
-        tileId,
-        signal: roll < 0.7 ? "treasure" : "unclear",
-        confidence: "medium",
-        message: "The Rare Friends miner senses a strange green aura vibrating deep within the rock.",
-      };
-    }
-
-    if (roll < 0.75) {
-      return {
-        tileId,
-        signal: "danger",
-        confidence: "high",
-        message: "The Rare Friends miner trembles! Seismic sensors detect a volatile explosive mine.",
-      };
-    } else {
-      return {
-        tileId,
-        signal: "unclear",
-        confidence: "low",
-        message: "Acoustic distortion... rock density echoes unpredictably.",
-      };
-    }
-  }
-
-  if (tile.kind === "rf" || tile.kind === "resource" || tile.kind === "special") {
-    if (roll < 0.75) {
-      return {
-        tileId,
-        signal: "treasure",
-        confidence: "high",
-        message: "A resonant mineral pulse echoes! Safe ore seam detected.",
-      };
-    } else {
-      return {
-        tileId,
-        signal: "unclear",
-        confidence: "low",
-        message: "Faint signal detected, but depth readings are muffled.",
-      };
-    }
-  }
-
-  return {
-    tileId,
-    signal: "unclear",
-    confidence: "medium",
-    message: "The geological scanner returns indeterminate readings.",
-  };
 }

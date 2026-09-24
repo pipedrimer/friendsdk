@@ -25,6 +25,37 @@ await testGame("./games/rare-friend-mine", {
     await game.locator("#btn-close-how-to-play").click();
     await game.locator("#btn-close-how-to-play").waitFor({ state: "detached" });
 
+    // 1c. Gear Locker: buy a durable cosmetic, equip/unequip, and track the NEW badge.
+    await game.getByRole("button", { name: /Open gear locker/ }).first().click();
+    await game.getByRole("dialog", { name: /GEAR LOCKER/ }).first().waitFor();
+    const vaultText = async () =>
+      (await game.locator(".gear-preview-blurb strong").textContent()).trim();
+    const vaultMatch = (await vaultText()).match(/[\d.,]+\s*RF/);
+    const vaultBefore = parseFloat(vaultMatch ? vaultMatch[0].replace(/,/g, "") : "0");
+    assert.ok(vaultBefore >= 2, `Vault must afford the 2 RF Ember Pickaxe (got ${vaultBefore} RF)`);
+
+    // Ember Pickaxe costs 2 simulated RF; buy auto-equips it.
+    await game.getByRole("button", { name: /Buy Ember Pickaxe/ }).click();
+    assert.match(
+      await vaultText(),
+      new RegExp(`${vaultBefore - 2}\\s*RF`),
+      `Vault must drop by the 2 RF purchase price (was ${vaultBefore})`,
+    );
+    await game.getByRole("button", { name: "Unequip Ember Pickaxe" }).waitFor();
+    await game.getByRole("button", { name: "Unequip Ember Pickaxe" }).click();
+    await game.getByRole("button", { name: "Equip Ember Pickaxe" }).click();
+    await game.getByRole("button", { name: "Unequip Ember Pickaxe" }).waitFor();
+    await page.screenshot({ path: "./games/rare-friend-mine/tests/artifacts/gear_locker.png" });
+
+    // Closing surfaces the unviewed NEW badge on the GEAR button; opening clears it.
+    await game.locator("#btn-close-gear-locker").click();
+    await game.getByRole("button", { name: "Open gear locker, 1 new" }).waitFor();
+    await game.getByRole("button", { name: /Open gear locker/ }).first().click();
+    await game.getByRole("dialog", { name: /GEAR LOCKER/ }).first().waitFor();
+    await game.locator("#btn-close-gear-locker").click();
+    await game.getByRole("button", { name: /Open gear locker/ }).first().waitFor();
+    await game.getByRole("dialog", { name: /GEAR LOCKER/ }).waitFor({ state: "detached" });
+
     // 2. Pick the 15 mines preset, then capture pre-run screen.
     await game.getByRole("button", { name: /^15 mines/i }).click();
     await page.screenshot({ path: "./games/rare-friend-mine/tests/artifacts/prerun.png" });

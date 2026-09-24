@@ -7,14 +7,11 @@ import {
   calculateRoundMultiplier,
   formatMultiplier,
   getDangerTier,
-  getDifficulty,
   getPeakMultiplier,
-  getStepMultiplier,
   getStartingMultiplier,
   MINES_CONFIG,
   RF_UNIT,
   RULES,
-  DIFFICULTY_MINE_COUNTS,
 } from "../src/engine/rules.ts";
 import { calculateStepHaul, formatRf } from "../src/engine/economy.ts";
 
@@ -272,15 +269,13 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
     assert.equal(state.mineCount, 5, "Setting 3 mines must clamp to min 5");
   });
 
-  it("13. SET_DIFFICULTY backward compat: sets mine count from difficulty tier", () => {
-    let state = createInitialState(1001n);
-    state = mineReducer(state, { type: "SET_DIFFICULTY", difficulty: "cataclysm" });
-    assert.equal(state.mineCount, DIFFICULTY_MINE_COUNTS["cataclysm"]);
-    assert.equal(state.nextMultiplierBps, getStartingMultiplier(DIFFICULTY_MINE_COUNTS["cataclysm"]));
-
-    state = mineReducer(state, { type: "SET_DIFFICULTY", difficulty: "novice" });
-    assert.equal(state.mineCount, DIFFICULTY_MINE_COUNTS["novice"]);
-    assert.equal(state.nextMultiplierBps, getStartingMultiplier(DIFFICULTY_MINE_COUNTS["novice"]));
+  it("13. SET_MINE_COUNT maps every count 5..24 to its danger tier and starting multiplier", () => {
+    for (let count = 5; count <= 24; count++) {
+      const state = mineReducer(createInitialState(1001n), { type: "SET_MINE_COUNT", count });
+      assert.equal(state.mineCount, count, `SET_MINE_COUNT ${count} must store the exact count`);
+      assert.equal(state.difficulty, getDangerTier(count).id, `count ${count} maps to its danger tier id`);
+      assert.equal(state.nextMultiplierBps, getStartingMultiplier(count), `count ${count} sets the matching starting multiplier`);
+    }
   });
 
   it("14. RETURN_TO_READY: completed runs return to ready screen with reset multiplier", () => {
@@ -492,17 +487,26 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
     }
   });
 
-  it("24. Difficulty helpers agree with the growing model", () => {
-    const cataclysm = getDifficulty("cataclysm");
-    assert.equal(cataclysm.minesPerBoard, DIFFICULTY_MINE_COUNTS["cataclysm"]);
-    assert.equal(cataclysm.initialMultiplierBps, getStartingMultiplier(cataclysm.minesPerBoard));
+  it("24. Tier and multiplier helpers agree with the growing model", () => {
+    assert.equal(getDangerTier(5).id, "novice");
+    assert.equal(getDangerTier(6).id, "novice");
+    assert.equal(getDangerTier(7).id, "prospector");
+    assert.equal(getDangerTier(10).id, "prospector");
+    assert.equal(getDangerTier(11).id, "abyss");
+    assert.equal(getDangerTier(15).id, "abyss");
+    assert.equal(getDangerTier(16).id, "cataclysm");
+    assert.equal(getDangerTier(20).id, "cataclysm");
+    assert.equal(getDangerTier(21).id, "inferno");
+    assert.equal(getDangerTier(24).id, "inferno");
 
-    const novice = getDifficulty("novice");
-    assert.equal(novice.initialMultiplierBps, getStartingMultiplier(novice.minesPerBoard));
-
-    assert.equal(getStepMultiplier(15, 0), 10000);
-    assert.equal(getStepMultiplier(15, 1), getStartingMultiplier(15));
-    assert.equal(getStepMultiplier(15, 2), calculateMinesMultiplier(15, 2));
+    assert.equal(calculateMinesMultiplier(15, 0), 10000);
+    assert.equal(calculateMinesMultiplier(15, 1), getStartingMultiplier(15));
+    assert.equal(
+      calculateMinesMultiplier(15, 2),
+      Math.round((getStartingMultiplier(15) * calculateRoundMultiplier(15, 2)) / 10000),
+    );
+    // More mines, more risk -> higher starting multiplier.
+    assert.equal(getStartingMultiplier(5) < getStartingMultiplier(24), true);
 
     const tier = getDangerTier(5);
     assert.ok(tier.name.length > 0);
@@ -557,5 +561,103 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
       const peak = getPeakMultiplier(count);
       assert.ok(Math.abs(state.currentMultiplierBps - peak) <= peak * 0.0001, `${count} mines current multiplier is within 1bp of the design peak`);
     }
+  });
+
+  it("27. Gear Locker: buying a durable cosmetic deducts simulated RF and equips it", () => {
+    let state = createInitialState(1001n);
+    assert.equal(state.availableRf, 10n * RF_UNIT);
+    assert.equal(state.cosmetics.unlocked.length, 0);
+    assert.equal(state.cosmetics.equipped.coat, null);
+
+    state = mineReducer(state, { type: "PURCHASE_COSMETIC", itemId: "coat/sunstone" });
+    assert.equal(state.cosmetics.unlocked.includes("coat/sunstone"), true, "Sunstone Coat is unlocked");
+    assert.equal(state.cosmetics.equipped.coat, "coat/sunstone", "Buying auto-equips the coat");
+    assert.equal(state.availableRf, 6n * RF_UNIT, "Vault drops by the 4 RF simulated price");
+
+    // Buying another coat swaps the equipped slot.
+    state = mineReducer(state, { type: "PURCHASE_COSMETIC", itemId: "coat/viridian" });
+    assert.equal(state.cosmetics.equipped.coat, "coat/viridian");
+    assert.equal(state.cosmetics.unlocked.length, 2);
+
+    // Equipping a previously-bought coat switches back without extra cost.
+    state = mineReducer(state, { type: "EQUIP_COSMETIC", itemId: "coat/sunstone" });
+    assert.equal(state.cosmetics.equipped.coat, "coat/sunstone");
+    assert.equal(state.availableRf, 2n * RF_UNIT, "Equipping never charges money");
+
+    // Unequip clears the slot.
+    state = mineReducer(state, { type: "UNEQUIP_COSMETIC", slot: "coat" });
+    assert.equal(state.cosmetics.equipped.coat, null);
+  });
+
+  it("28. Gear Locker: purchases fail without enough simulated RF or for trophies", () => {
+    let state = createInitialState(1001n);
+    state = mineReducer(state, { type: "INIT_READY", friendId: 1001n, availableRf: 1n * RF_UNIT });
+
+    state = mineReducer(state, { type: "PURCHASE_COSMETIC", itemId: "coat/sunstone" });
+    assert.equal(state.cosmetics.unlocked.length, 0, "Cannot buy a 4 RF coat with only 1 RF");
+    assert.match(state.errorMessage, /Need 4 RF for Sunstone Coat/, "Error explains the missing simulated RF");
+
+    // Trophies are never purchasable.
+    state = mineReducer(state, { type: "PURCHASE_COSMETIC", itemId: "helmet/golden", });
+    assert.equal(state.cosmetics.unlocked.length, 0, "Trophy gear is earned, not bought");
+    assert.match(state.errorMessage, /trophy/, "Error says trophy gear is earned");
+
+    // Equipping unowned gear is rejected.
+    state = mineReducer(state, { type: "EQUIP_COSMETIC", itemId: "aura/storm" });
+    assert.equal(state.cosmetics.equipped.aura, null, "Cannot equip unowned gear");
+  });
+
+  it("29. Gear Locker: achievements grant trophies and track session stats", () => {
+    // Bank path: deterministic 5-mine board (tiles 0-4 mines, 5-24 RF).
+    // Compounded 1 RF stake clears 25 RF at drill 12 -> unlocks within one run.
+    let state = createInitialState(1001n);
+    state = mineReducer(state, { type: "START_RUN", seed: 11 });
+    for (let i = 0; i < 5; i++) state.board[i] = { id: i, kind: "mine", mineType: "red", revealed: false };
+    for (let i = 5; i < 25; i++) state.board[i] = { id: i, kind: "rf", amount: 1, revealed: false };
+    for (let i = 5; i < 17 && state.phase === "playing"; i++) {
+      state = mineReducer(state, { type: "SELECT_TILE", tileId: i });
+      state = mineReducer(state, { type: "FINISH_REVEAL" });
+    }
+    assert.equal(state.stats.safeDigs, 12, "Safe digs counted so far");
+    assert.ok(state.atRiskRf >= 25n * RF_UNIT, "Compounded haul crosses the 25 RF single-bank threshold");
+
+    state = mineReducer(state, { type: "BANK" });
+    assert.equal(state.stats.bestSingleBankRf, state.stats.bankedRf, "Single-bank stat records this run's haul");
+    assert.ok(state.stats.bestSingleBankRf >= 25n * RF_UNIT);
+    assert.ok(state.cosmetics.unlocked.includes("coat/royal"), "Royal Coat unlocks by banking 25 RF in one run (BANK path)");
+    assert.ok(state.cosmetics.unlocked.includes("aura/legend") === false, "Legend Glow needs 100 RF banked total — 30 RF is not enough yet");
+    assert.ok(state.cosmetics.unlocked.includes("pickaxe/diamond") === false, "Diamond Pickaxe stays locked at 12 safe digs");
+    assert.ok(state.cosmetics.newItems.includes("coat/royal"), "The locker marks fresh unlocks");
+
+    // Equip the earned coat and confirm progression survives RETURN_TO_READY.
+    state = mineReducer(state, { type: "EQUIP_COSMETIC", itemId: "coat/royal" });
+    assert.equal(state.cosmetics.equipped.coat, "coat/royal");
+    state = mineReducer(state, { type: "RETURN_TO_READY" });
+    assert.equal(state.phase, "ready");
+    assert.equal(state.cosmetics.equipped.coat, "coat/royal", "Gear persists to the next run");
+    assert.equal(state.stats.bankedRf > 0n, true, "Session banked RF persists");
+
+    // ACK clears the NEW badge.
+    state = mineReducer(state, { type: "ACK_COSMETICS" });
+    assert.equal(state.cosmetics.newItems.length, 0, "Acknowledged unlocks clear the badge");
+
+    // Full-clear path: digging every safe tile auto-banks at the peak and
+    // grants the full-clear + bank mileposts in one run.
+    let clear = createInitialState(1001n);
+    clear = mineReducer(clear, { type: "SET_MINE_COUNT", count: 5 });
+    clear = mineReducer(clear, { type: "START_RUN", seed: 7 });
+    for (let i = 0; i < 5; i++) clear.board[i] = { id: i, kind: "mine", mineType: "red", revealed: false };
+    for (let i = 5; i < 25; i++) clear.board[i] = { id: i, kind: "rf", amount: 1, revealed: false };
+    for (let i = 5; i < 25 && clear.phase === "playing"; i++) {
+      clear = mineReducer(clear, { type: "SELECT_TILE", tileId: i });
+      clear = mineReducer(clear, { type: "FINISH_REVEAL" });
+    }
+    assert.equal(clear.phase, "complete");
+    assert.equal(clear.stats.fullClears, 1, "Full clear counted in session stats");
+    assert.equal(clear.stats.safeDigs, 20, "Safe digs tracked across the run");
+    assert.ok(clear.stats.bankedRf > 0n, "Auto-bank haul credits session banked RF");
+    assert.ok(clear.stats.bankedRf >= 100n * RF_UNIT, "Peak auto-bank clears the 100 RF bounty");
+    assert.ok(clear.cosmetics.unlocked.includes("helmet/golden"), "Golden Helm unlocks on full clear");
+    assert.ok(clear.cosmetics.unlocked.includes("aura/legend"), "Legend Glow unlocks past 100 RF banked (full-clear path)");
   });
 });

@@ -11,8 +11,8 @@ Your selected Rare Friends miner enters a deep geological mine shaft, spending s
 ## Vibeathon Category Alignment
 
 - **Character Spotlight**: Your selected Generations NFT is the living protagonist—walking, digging with its pickaxe, trembling when risk escalates, reacting with joy to cosmic ores, and celebrating upon banking.
-- **Token Activity**: `$RAREFRIENDS` powers the gameplay loop as Entry Fuel (1 RF), At-Risk Vault, and Directional Radar (Scanner: 1 RF). The haul you bank is compounded by the growing per-round multiplier for the difficulty you chose. Shields and Boosts are **rare finds on the board — never purchasable**.
-- **Economy Potential**: Mined resources (Copper, Moon, Cosmic, Golden, and Shadow Ore) establish the foundation for persistent crafting and asynchronous peer-to-peer marketplace trading.
+- **Token Activity**: `$RAREFRIENDS` powers the gameplay loop as Entry Fuel (1 RF) and the At-Risk Vault. The haul you bank is compounded by the growing per-round multiplier for the risk tier you chose (via mine count). Shields and Boosts are **rare finds on the board — never purchasable**.
+- **Economy Potential**: Mined resources (Copper, Moon, Cosmic, Golden, and Shadow Ore) establish the foundation for persistent crafting and asynchronous peer-to-peer marketplace trading. Durable cosmetic gear (coats, helmets, pickaxes, auras) is unlocked without any simulated risk — a first step toward persistent, wearer-owned cosmetics.
 
 ---
 
@@ -57,24 +57,46 @@ Any hazardous mine (red, yellow, purple, or blue) detonating without a Shield is
 > tile IS the full clear: finding it on the first dig banks the ×24.38 peak and
 > ends the run immediately.
 
-### 4. Tactical Utilities & Rare Finds
-- **Scanner [S]** (1 RF): Directional acoustic sensor providing hazard or treasure clues without revealing the tile.
+### 4. Tactical Rare Finds
 - **Shield** (rare find — special cache): Absorbs and neutralizes the next mine detonation encountered — the only thing standing between you and a total wipe. **Not purchasable.**
 - **Boost** (rare find — special cache): +0.50× for your next 2 safe digs (adds to the growing round multiplier). **Not purchasable.**
 - **Ore** (rare find): Copper, Moon, Cosmic, Golden, or Shadow Ore — collectible resources with **no RF value** at the bank, but they still grow the haul like any safe dig.
+
+### 5. Gear Locker (Durable Cosmetics, Simulated RF)
+Open **GEAR** in the top bar (or the **GEAR LOCKER** card on the pre-run screen) to style your Friend. Gear is **durable and visual-only** — it never changes odds or payouts. Unlocks and equipped gear persist across runs for your Friend for the runtime session.
+
+- **Shop skins** (simulated RF, one-time per Friend):
+
+| Slot | Item | RF |
+| --- | --- | --- |
+| Coat | Sunstone / Viridian / Nocturne | 4 each |
+| Helmet | Brass | 3 |
+| Helmet | Crown | 5 |
+| Pickaxe | Ember / Plasma | 2 each |
+| Aura | Ember / Storm | 6 each |
+
+- **Achievement trophies** (earned, never purchasable):
+
+| Item | Unlock |
+| --- | --- |
+| Golden Helm | Complete a full clear |
+| Royal Coat | Bank 25 RF in a single run |
+| Diamond Pickaxe | Dig 100 safe tiles |
+| Legend Glow | Bank 100 RF total across the session |
+
+Purchases deduct exactly their listed simulated RF from the vault; an **NEW** badge on the GEAR button flags unlocks you have not viewed. Buy one, own it for the session — no recurring costs, no refunds (simulated).
 
 ---
 
 ## Controls
 
 ### Mobile / Touch
-- **Tap Tile**: Dig unrevealed tile (or scan if Scanner active).
-- **Action Buttons**: Large 44px+ touch targets for Scanner and Bank.
+- **Tap Tile**: Dig unrevealed tile.
+- **Action Buttons**: Large 44px+ touch targets for Bank.
 
 ### Desktop Keyboard Shortcuts
 - **Arrow Keys**: Move focus across the 5×5 grid.
 - **Enter / Space**: Dig the focused tile.
-- **[S]**: Toggle Scanner mode.
 - **[C]**: Bank Haul immediately.
 
 ---
@@ -102,14 +124,17 @@ node scripts/dev-game.mjs build games/rare-friend-mine
 # Typecheck the game sources
 npx tsc -p games/rare-friend-mine/tsconfig.json --noEmit
 
-# Engine unit tests (26 deterministic cases)
+# Engine unit tests (29 deterministic cases)
 node games/rare-friend-mine/tests/run-tests.mjs
 
-# Economy Monte Carlo simulation (20,000 default runs)
+# Economy Monte Carlo simulation (10,000 default runs per mine count, 5–24)
 node games/rare-friend-mine/tests/run-sim.mjs
 
-# Automated browser smoke test (mock wallet + real sandboxed runtime)
+# Automated browser smoke test (mock wallet + real sandboxed runtime + Gear Locker)
 node games/rare-friend-mine/tests/browser-smoke.mjs
+
+# Responsive mobile smoke test (portrait + short-landscape phones)
+node games/rare-friend-mine/tests/mobile-smoke.mjs
 
 # Launch live local preview server
 node scripts/dev-game.mjs dev games/rare-friend-mine --port 4173
@@ -136,4 +161,4 @@ node scripts/dev-game.mjs dev games/rare-friend-mine --outdir games/rare-friend-
 
 ## Simulated Economy Disclaimer
 
-All `$RAREFRIENDS` balances, entry fees, utility costs, and rewards within this preview are strictly simulated for the Vibeathon demonstration. No real tokens are transferred, burned, or required.
+All `$RAREFRIENDS` balances, entry fees, rewards, gear purchases and cosmetics in this preview are strictly simulated for the Vibeathon demonstration. No real tokens are transferred, burned, or required.

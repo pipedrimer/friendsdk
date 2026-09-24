@@ -1,7 +1,6 @@
 :root {
-  --rf-host-aspect: 960 / 640;
-  /* Fit the entire frame in the viewport: cap width so 3:2 height stays ≤ 100dvh. */
-  --rf-game-max-width: min(960px, calc(100dvh * 1.5));
+  /* Default reference frame: a 3:2 canvas capped to the viewport on both axes. */
+  --rf-game-max-width: min(960px, calc(100vw - 16px), calc(100dvh * 1.5));
   --rf-game-aspect-ratio: 3 / 2;
 }
 
@@ -27,4 +26,21 @@ body {
   display: flex;
   flex-direction: column;
   justify-content: center;
+}
+
+/* Portrait phones: swap the fixed 3:2 box for a tall frame so the mine grid,
+   HUD and action bar stack comfortably. The game content scrolls within it. */
+@media (max-width: 767px) and (orientation: portrait) {
+  :root {
+    --rf-game-max-width: calc(100vw - 8px);
+    --rf-game-aspect-ratio: 1 / 1.75;
+  }
+}
+
+/* Small landscape screens: widen the frame and cap it by the available height. */
+@media (max-width: 900px) and (max-height: 480px) {
+  :root {
+    --rf-game-max-width: min(960px, calc(100vw - 8px), calc(100dvh * 1.33));
+    --rf-game-aspect-ratio: 4 / 3;
+  }
 }

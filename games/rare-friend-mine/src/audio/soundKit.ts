@@ -9,7 +9,6 @@ export type SoundEffect =
   | "mineExplosion"
   | "shieldDeflect"
   | "boostActivate"
-  | "scannerPing"
   | "bankSuccess"
   | "click";
 
@@ -169,22 +168,6 @@ export class MineSoundKit {
         gain.connect(ctx.destination);
         osc.start(now);
         osc.stop(now + 0.25);
-        break;
-      }
-
-      case "scannerPing": {
-        // Sonar ping
-        const osc = ctx.createOscillator();
-        const gain = ctx.createGain();
-        osc.type = "sine";
-        osc.frequency.setValueAtTime(1200, now);
-        osc.frequency.exponentialRampToValueAtTime(950, now + 0.3);
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.3);
-        osc.connect(gain);
-        gain.connect(ctx.destination);
-        osc.start(now);
-        osc.stop(now + 0.3);
         break;
       }
 

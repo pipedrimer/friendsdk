@@ -1,10 +1,11 @@
 // Rare Friends: MINE -- economy Monte Carlo simulation.
 // Uses the exact board generator + rule module to verify the growing per-round
-// multiplier compounds and the house edge stays positive.
+// multiplier compounds and the house edge stays positive across the full range
+// of selectable mine counts (MINES_CONFIG.minMines .. maxMines), not just the
+// quick presets. Each config is exercised through the real SET_MINE_COUNT action.
 // Bundle + run: node games/rare-friend-mine/tests/run-sim.mjs
 import { createInitialState, mineReducer } from "../src/engine/mineEngine.ts";
-import { DIFFICULTIES, formatMultiplier, RF_UNIT, RULES } from "../src/engine/rules.ts";
-import { formatRf } from "../src/engine/economy.ts";
+import { formatMultiplier, getDangerTier, getStartingMultiplier, MINES_CONFIG, RF_UNIT, RULES } from "../src/engine/rules.ts";
 
 const RUNS = Number(process.env.RF_MINE_SIM_RUNS ?? 10_000);
 // Realistic bot banking rule: bank after reaching >= 2.0x multiplier or 2 RF haul
@@ -21,8 +22,6 @@ type Stats = {
   shieldsFound: number;
   boostsFound: number;
   oresFound: number;
-  scansBought: number;
-  cursedDigs: number;
 };
 
 function freshStats(): Stats {
@@ -37,8 +36,6 @@ function freshStats(): Stats {
     shieldsFound: 0,
     boostsFound: 0,
     oresFound: 0,
-    scansBought: 0,
-    cursedDigs: 0,
   };
 }
 
@@ -48,9 +45,9 @@ function pickTile(state: ReturnType<typeof createInitialState>): number {
   return pick.id;
 }
 
-function runOnce(seed: number, difficultyId: (typeof DIFFICULTIES)[number]["id"]): Stats {
+function runOnce(seed: number, mineCount: number): Stats {
   let state = createInitialState(1000n + BigInt(seed % 1000));
-  state = mineReducer(state, { type: "SET_DIFFICULTY", difficulty: difficultyId });
+  state = mineReducer(state, { type: "SET_MINE_COUNT", count: mineCount });
   state = mineReducer(state, { type: "START_RUN", seed });
 
   const bag = freshStats();
@@ -82,7 +79,6 @@ function runOnce(seed: number, difficultyId: (typeof DIFFICULTIES)[number]["id"]
     }
 
     if (state.phase === "complete") break;
-    if (state.curseDigsRemaining > 0) bag.cursedDigs += 1;
   }
 
   if (state.phase === "playing") {
@@ -95,10 +91,10 @@ function runOnce(seed: number, difficultyId: (typeof DIFFICULTIES)[number]["id"]
   return bag;
 }
 
-function simulate(difficultyId: (typeof DIFFICULTIES)[number]["id"]): Stats {
+function simulate(mineCount: number): Stats {
   const totals = freshStats();
   for (let i = 0; i < RUNS; i++) {
-    const bag = runOnce(i, difficultyId);
+    const bag = runOnce(i, mineCount);
     for (const key of Object.keys(totals) as (keyof Stats)[]) {
       if (typeof totals[key] === "bigint") {
         totals[key] = (totals[key] as bigint) + (bag[key] as bigint);
@@ -115,15 +111,23 @@ const avgNum = (n: number) => n / RUNS;
 const pct = (n: number) => ((n / RUNS) * 100).toFixed(1) + "%";
 const stake = Number(RULES.defaultStakeRf / (RF_UNIT / 1000n)) / 1000;
 
-console.log(`Rare Friends: MINE economy simulation (${RUNS.toLocaleString()} runs per difficulty, 1.0 RF stake, bank at >= 2.0 RF)`);
-for (const difficulty of DIFFICULTIES) {
-  const t = simulate(difficulty.id);
+const counts: number[] = [];
+for (let c = MINES_CONFIG.minMines; c <= MINES_CONFIG.maxMines; c++) counts.push(c);
+
+console.log(`Rare Friends: MINE economy simulation (${RUNS.toLocaleString()} runs per mine count, 1.0 RF stake, bank at >= 2.0 RF)`);
+console.log(`Covers every selectable mine count ${counts[0]}..${counts[counts.length - 1]} via SET_MINE_COUNT`);
+
+let allPositive = true;
+for (const mineCount of counts) {
+  const t = simulate(mineCount);
+  const tier = getDangerTier(mineCount);
   const avgBanked = avgRf(t.bankedRf);
   const netEv = avgBanked - stake;
   const houseEdgePct = ((stake - avgBanked) / stake) * 100;
+  if (houseEdgePct <= 0) allPositive = false;
 
   console.log("-------------------------------------");
-  console.log(`[${difficulty.name.toUpperCase()}] ${difficulty.minesPerBoard} mines/25 · starts x${formatMultiplier(difficulty.initialMultiplierBps)}`);
+  console.log(`[${tier.name.toUpperCase()} · ${mineCount} mines/25] starts x${formatMultiplier(getStartingMultiplier(mineCount))}`);
   console.log(`  Average safe digs:        ${avgNum(t.digs).toFixed(2)}`);
   console.log(`  Average banked RF:        ${avgBanked.toFixed(3)} RF`);
   console.log(`  Run win rate (banked>0):  ${pct(t.wins)}`);
@@ -135,3 +139,4 @@ for (const difficulty of DIFFICULTIES) {
   console.log(`  House Edge:               ${houseEdgePct.toFixed(1)}% (Sustainable: ${houseEdgePct > 0 ? "YES" : "NO"})`);
 }
 console.log("=====================================");
+console.log(`All ${counts.length} mine counts sustainable: ${allPositive ? "YES" : "NO"}`);

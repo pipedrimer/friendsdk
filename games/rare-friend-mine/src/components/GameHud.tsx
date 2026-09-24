@@ -21,10 +21,12 @@ interface GameHudProps {
   muted: boolean;
   reducedMotion: boolean;
   theme: "light" | "invert";
+  newCosmetics: number;
   onToggleMute: () => void;
   onToggleReducedMotion: () => void;
   onToggleTheme: () => void;
   onToggleHelp: () => void;
+  onToggleCosmetics: () => void;
 }
 
 export function GameHud({
@@ -32,10 +34,12 @@ export function GameHud({
   muted,
   reducedMotion,
   theme,
+  newCosmetics,
   onToggleMute,
   onToggleReducedMotion,
   onToggleTheme,
   onToggleHelp,
+  onToggleCosmetics,
 }: GameHudProps) {
   const tier = getDangerTier(state.mineCount);
   const startBps = getStartingMultiplier(state.mineCount);
@@ -160,8 +164,23 @@ export function GameHud({
         {tier.name.toUpperCase()}
       </div>
 
-      {/* 6. Utility Controls (Theme, Sound, Motion) */}
+      {/* 6. Utility Controls (Gear, Theme, Sound, Motion) */}
       <div className="hud-util-cluster" aria-label="Display and audio controls">
+        <button
+          type="button"
+          className={`hud-btn-toggle ${newCosmetics > 0 ? "has-new" : ""}`}
+          id="btn-gear-locker"
+          onClick={onToggleCosmetics}
+          aria-haspopup="dialog"
+          aria-label={newCosmetics > 0 ? `Open gear locker, ${newCosmetics} new` : "Open gear locker"}
+          title="Gear Locker — durable cosmetics for your Friend"
+        >
+          <SparklesIcon className="rf-icon" aria-hidden="true" /> GEAR
+          {newCosmetics > 0 && (
+            <span className="gear-new-badge" aria-hidden="true">{newCosmetics}</span>
+          )}
+        </button>
+
         <button
           type="button"
           className="hud-btn-toggle"

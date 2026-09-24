@@ -1,19 +1,26 @@
-import type { DifficultyId, MineAction, MineRun, MineTile, ScanResult, TileResolution } from "../types/game.js";
-import { createBoard, scanTileClue } from "./board.js";
+import type { MineAction, MineRun, MineTile, SessionStats, TileResolution } from "../types/game.js";
+import { createBoard } from "./board.js";
 import {
   calculateGreenMineMultiplier,
   calculateStepHaul,
   formatRf,
 } from "./economy.js";
-import { createSeed, mulberry32 } from "./random.js";
+import { createSeed } from "./random.js";
 import {
   calculateRoundMultiplier,
-  DIFFICULTY_MINE_COUNTS,
   formatMultiplier,
   getDangerTier,
   MINES_CONFIG,
   RULES,
 } from "./rules.js";
+import {
+  createCosmeticsState,
+  createSessionStats,
+  formatCosmeticPrice,
+  getCosmeticItem,
+  isCosmeticOwned,
+  newlyEarnedIds,
+} from "./cosmetics.js";
 
 
 export function createInitialState(friendId: bigint = 0n): MineRun {
@@ -23,7 +30,7 @@ export function createInitialState(friendId: bigint = 0n): MineRun {
     phase: "ready",
     runId: "",
     friendId,
-    difficulty: tier.id as DifficultyId,
+    difficulty: tier.id,
     mineCount: defaultMines,
     stakeRf: RULES.defaultStakeRf,
     availableRf: RULES.startingRf,
@@ -35,14 +42,58 @@ export function createInitialState(friendId: bigint = 0n): MineRun {
     safeDigCount: 0,
     shieldCharges: 0,
     boostDigsRemaining: 0,
-    curseDigsRemaining: 0,
     selectedTileIndex: null,
     revealedTileIds: [],
     board: [],
     resources: [],
     startedAt: 0,
+    cosmetics: createCosmeticsState(),
+    stats: createSessionStats(),
     history: [],
   };
+}
+
+/** Unlock any freshly-earned trophy cosmetics for the given stats. */
+function applyEarned(next: MineRun): MineRun {
+  const earned = newlyEarnedIds(next.cosmetics, next.stats);
+  if (earned.length === 0) return next;
+  const history = [
+    ...next.history,
+    ...earned.map((itemId) => {
+      const item = getCosmeticItem(itemId);
+      return `EARNED GEAR: ${item?.name ?? itemId} unlocked in the Gear Locker!`;
+    }),
+  ];
+  return {
+    ...next,
+    cosmetics: {
+      ...next.cosmetics,
+      unlocked: [...next.cosmetics.unlocked, ...earned],
+      newItems: [...next.cosmetics.newItems, ...earned],
+    },
+    history,
+  };
+}
+
+/** Stats + achievement bookkeeping after a dig resolves. */
+function applyDigProgress(next: MineRun, prev: MineRun): MineRun {
+  const gainedSafeDig = next.safeDigCount === prev.safeDigCount + 1;
+  if (!gainedSafeDig) return applyEarned(next);
+  const stats: SessionStats = { ...next.stats, safeDigs: next.stats.safeDigs + 1 };
+  const totalSafeTiles = MINES_CONFIG.totalTiles - next.mineCount;
+  const wasFullClear = next.phase === "complete" && next.safeDigCount >= totalSafeTiles;
+  const withClear = wasFullClear
+    ? {
+        ...stats,
+        fullClears: stats.fullClears + 1,
+        bankedRf: stats.bankedRf + next.bankedRf,
+        bestSingleBankRf:
+          next.bankedRf > stats.bestSingleBankRf
+            ? next.bankedRf
+            : stats.bestSingleBankRf,
+      }
+    : stats;
+  return applyEarned({ ...next, stats: withClear });
 }
 
 export function mineReducer(state: MineRun, action: MineAction): MineRun {
@@ -53,6 +104,9 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         ? state.stakeRf
         : avail >= RULES.minStakeRf ? RULES.minStakeRf : avail;
 
+      // A different Friend account starts a fresh session gear locker.
+      const sameFriend = state.friendId === action.friendId;
+
       return {
         ...state,
         phase: "ready",
@@ -60,6 +114,8 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         availableRf: avail,
         stakeRf: validStake,
         nextMultiplierBps: calculateRoundMultiplier(state.mineCount, 1),
+        cosmetics: sameFriend ? state.cosmetics : createCosmeticsState(),
+        stats: sameFriend ? state.stats : createSessionStats(),
         errorMessage: undefined,
       };
     }
@@ -83,7 +139,6 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         safeDigCount: 0,
         shieldCharges: 0,
         boostDigsRemaining: 0,
-        curseDigsRemaining: 0,
         selectedTileIndex: null,
         revealedTileIds: [],
         board: [],
@@ -91,19 +146,6 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         startedAt: 0,
         completedAt: undefined,
         lastResolution: undefined,
-        lastScanResult: undefined,
-        errorMessage: undefined,
-      };
-    }
-
-    case "SET_DIFFICULTY": {
-      if (state.phase !== "ready") return state;
-      const count = DIFFICULTY_MINE_COUNTS[action.difficulty] ?? 5;
-      return {
-        ...state,
-        difficulty: action.difficulty,
-        mineCount: count,
-        nextMultiplierBps: calculateRoundMultiplier(count, 1),
         errorMessage: undefined,
       };
     }
@@ -115,7 +157,7 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
       return {
         ...state,
         mineCount: clamped,
-        difficulty: tier.id as DifficultyId,
+        difficulty: tier.id,
         nextMultiplierBps: calculateRoundMultiplier(clamped, 1),
         errorMessage: undefined,
       };
@@ -162,7 +204,6 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         safeDigCount: 0,
         shieldCharges: 0,
         boostDigsRemaining: 0,
-        curseDigsRemaining: 0,
         selectedTileIndex: null,
         revealedTileIds: [],
         board,
@@ -170,7 +211,6 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         startedAt: Date.now(),
         completedAt: undefined,
         lastResolution: undefined,
-        lastScanResult: undefined,
         history: [
           `Delve started (${tier.name}, ${state.mineCount} mines, Seed: ${seed}). Stake: ${formatRf(state.stakeRf)} RF.`,
         ],
@@ -183,20 +223,9 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
       const tile = state.board[action.tileId];
       if (!tile || tile.revealed) return state;
 
-      let available = state.availableRf;
-      let curseRemaining = state.curseDigsRemaining;
-      if (curseRemaining > 0) {
-        if (available >= RULES.curseExtraCostRf) {
-          available -= RULES.curseExtraCostRf;
-        }
-        curseRemaining -= 1;
-      }
-
       return {
         ...state,
         phase: "revealing",
-        availableRf: available,
-        curseDigsRemaining: curseRemaining,
         selectedTileIndex: action.tileId,
         errorMessage: undefined,
       };
@@ -267,7 +296,7 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         const haulBoard = updatedBoard.map((t) =>
           t.id === tileId ? ({ ...t, haulRf: newAtRisk } as MineTile) : t,
         );
-        return settleSafeDig(
+        return applyDigProgress(settleSafeDig(
           {
             ...state,
             phase: "playing",
@@ -294,7 +323,9 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           },
           newAtRisk,
           "Ore seam cleared the shaft.",
-        );
+        ),
+        state,
+      );
       }
 
       // 2. Resource Ore Tile (collectible — never adds RF to the bank)
@@ -310,7 +341,7 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           t.id === tileId ? ({ ...t, haulRf: newAtRisk } as MineTile) : t,
         );
 
-        return settleSafeDig(
+        return applyDigProgress(settleSafeDig(
           {
             ...state,
             phase: "playing",
@@ -338,7 +369,9 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           },
           newAtRisk,
           "The last vein is yours.",
-        );
+        ),
+        state,
+      );
       }
 
       // 3. Special Cache Tile (rare find: +1 Shield or Boost charges)
@@ -347,7 +380,7 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           t.id === tileId ? ({ ...t, haulRf: newAtRisk } as MineTile) : t,
         );
         if (tile.specialType === "shield") {
-          return settleSafeDig(
+          return applyDigProgress(settleSafeDig(
             {
               ...state,
               phase: "playing",
@@ -374,11 +407,13 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
               ],
             },
             newAtRisk,
-            "Shield cache was the last safe tile.",
-          );
-        }
+"Shield cache was the last safe tile.",
+        ),
+        state,
+      );
+      }
 
-        return settleSafeDig(
+        return applyDigProgress(settleSafeDig(
           {
             ...state,
             phase: "playing",
@@ -405,32 +440,37 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           },
           newAtRisk,
           "Boost cache was the last safe tile.",
-        );
+        ),
+        state,
+      );
       }
 
       // 4. Mine Tile
       if (tile.kind === "mine") {
         // Shield Protection Check
         if (state.shieldCharges > 0 && tile.mineType !== "green") {
-          return {
-            ...state,
-            phase: "playing",
-            shieldCharges: state.shieldCharges - 1,
-            board: updatedBoard,
-            revealedTileIds: revealedIds,
-            selectedTileIndex: null,
-            lastResolution: {
-              type: "mine",
-              tileId,
-              mineType: tile.mineType,
-              wasShielded: true,
-              lostRf: 0n,
+          return applyDigProgress(
+            {
+              ...state,
+              phase: "playing",
+              shieldCharges: state.shieldCharges - 1,
+              board: updatedBoard,
+              revealedTileIds: revealedIds,
+              selectedTileIndex: null,
+              lastResolution: {
+                type: "mine",
+                tileId,
+                mineType: tile.mineType,
+                wasShielded: true,
+                lostRf: 0n,
+              },
+              history: [
+                ...state.history,
+                `Mine encounter (${tile.mineType}) absorbed by active Shield! Current ${formatRf(state.atRiskRf)} RF haul preserved.`,
+              ],
             },
-            history: [
-              ...state.history,
-              `Mine encounter (${tile.mineType}) absorbed by active Shield! Current ${formatRf(state.atRiskRf)} RF haul preserved.`,
-            ],
-          };
+            state,
+          );
         }
 
         // Green Mine (Lucky: doubles the CURRENT haul, keeps the run going)
@@ -438,7 +478,7 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           const boostedMultiplierBps = calculateGreenMineMultiplier(state.currentMultiplierBps);
           const doubledHaul = calculateStepHaul(state.stakeRf, boostedMultiplierBps);
 
-          return settleSafeDig(
+          return applyDigProgress(settleSafeDig(
             {
               ...state,
               phase: "playing",
@@ -464,32 +504,37 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
             },
             doubledHaul,
             "That green mine was the last safe tile.",
-          );
-        }
+          ),
+          state,
+        );
+      }
 
         // Any unshielded hazardous mine detonates -> total loss of haul
         const lostRf = state.atRiskRf;
-        return {
-          ...state,
-          phase: "crashing",
-          atRiskRf: 0n,
-          bankedRf: 0n,
-          board: updatedBoard,
-          revealedTileIds: revealedIds,
-          selectedTileIndex: null,
-          completedAt: undefined,
-          lastResolution: {
-            type: "mine",
-            tileId,
-            mineType: tile.mineType,
-            wasShielded: false,
-            lostRf,
+        return applyDigProgress(
+          {
+            ...state,
+            phase: "crashing",
+            atRiskRf: 0n,
+            bankedRf: 0n,
+            board: updatedBoard,
+            revealedTileIds: revealedIds,
+            selectedTileIndex: null,
+            completedAt: undefined,
+            lastResolution: {
+              type: "mine",
+              tileId,
+              mineType: tile.mineType,
+              wasShielded: false,
+              lostRf,
+            },
+            history: [
+              ...state.history,
+              `MINE DETONATION (${tile.mineType}): lost all ${formatRf(lostRf)} at-risk RF.`,
+            ],
           },
-          history: [
-            ...state.history,
-            `MINE DETONATION (${tile.mineType}): lost all ${formatRf(lostRf)} at-risk RF.`,
-          ],
-        };
+          state,
+        );
       }
 
       return state;
@@ -504,45 +549,23 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
       };
     }
 
-    case "SCAN": {
-      if (state.phase !== "playing") return state;
-      if (state.availableRf < RULES.scannerCostRf) {
-        return {
-          ...state,
-          errorMessage: `Not enough simulated RF to use Scanner (${formatRf(RULES.scannerCostRf)} RF required).`,
-        };
-      }
-
-      const tile = state.board[action.tileId];
-      if (!tile || tile.revealed) return state;
-
-      const rng = mulberry32(Date.now() + action.tileId);
-      const scanResult = scanTileClue(tile, rng);
-
-      return {
-        ...state,
-        availableRf: state.availableRf - RULES.scannerCostRf,
-        lastScanResult: scanResult,
-        history: [...state.history, `Scanned tile #${action.tileId}: ${scanResult.signal}`],
-        errorMessage: undefined,
-      };
-    }
-
-    case "CLEAR_SCAN": {
-      return {
-        ...state,
-        lastScanResult: undefined,
-      };
-    }
-
     case "BANK": {
       if (state.phase !== "playing") return state;
 
       const securedRf = state.atRiskRf;
       const totalAvailable = state.availableRf + securedRf;
+      const stats: SessionStats = {
+        ...state.stats,
+        bankedRf: state.stats.bankedRf + securedRf,
+        bestSingleBankRf:
+          securedRf > state.stats.bestSingleBankRf
+            ? securedRf
+            : state.stats.bestSingleBankRf,
+      };
 
-      return {
+      return applyEarned({
         ...state,
+        stats,
         phase: "complete",
         availableRf: totalAvailable,
         bankedRf: securedRf,
@@ -553,7 +576,7 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           `BANKED! Secured exactly ${formatRf(securedRf)} RF (${formatMultiplier(state.currentMultiplierBps)}x of stake).`,
         ],
         errorMessage: undefined,
-      };
+      });
     }
 
     case "END_RUN": {
@@ -570,6 +593,74 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
       return {
         ...state,
         errorMessage: action.message,
+      };
+    }
+
+    case "PURCHASE_COSMETIC": {
+      if (state.phase === "revealing" || state.phase === "crashing") return state;
+      const item = getCosmeticItem(action.itemId);
+      if (!item) return state;
+      if (item.priceRf <= 0n) {
+        return { ...state, errorMessage: `${item.name} is a trophy — earn it by playing, it cannot be bought.` };
+      }
+      if (isCosmeticOwned(state.cosmetics, item.id)) {
+        return { ...state, errorMessage: `You already own ${item.name}.` };
+      }
+      if (state.availableRf < item.priceRf) {
+        return {
+          ...state,
+          errorMessage: `Need ${formatCosmeticPrice(item.priceRf)} for ${item.name} — you have ${formatCosmeticPrice(state.availableRf)}.`,
+        };
+      }
+      return {
+        ...state,
+        availableRf: state.availableRf - item.priceRf,
+        cosmetics: {
+          ...state.cosmetics,
+          unlocked: [...state.cosmetics.unlocked, item.id],
+          equipped: { ...state.cosmetics.equipped, [item.slot]: item.id },
+          newItems: [...state.cosmetics.newItems, item.id],
+        },
+        errorMessage: undefined,
+        history: [
+          ...state.history,
+          `Bought ${item.name} from the Gear Locker for ${formatCosmeticPrice(item.priceRf)} (simulated RF).`,
+        ],
+      };
+    }
+
+    case "EQUIP_COSMETIC": {
+      const item = getCosmeticItem(action.itemId);
+      if (!item) return state;
+      if (!isCosmeticOwned(state.cosmetics, item.id)) {
+        return { ...state, errorMessage: `Own ${item.name} first.` };
+      }
+      return {
+        ...state,
+        cosmetics: {
+          ...state.cosmetics,
+          equipped: { ...state.cosmetics.equipped, [item.slot]: item.id },
+        },
+        errorMessage: undefined,
+      };
+    }
+
+    case "UNEQUIP_COSMETIC": {
+      return {
+        ...state,
+        cosmetics: {
+          ...state.cosmetics,
+          equipped: { ...state.cosmetics.equipped, [action.slot]: null },
+        },
+        errorMessage: undefined,
+      };
+    }
+
+    case "ACK_COSMETICS": {
+      if (state.cosmetics.newItems.length === 0) return state;
+      return {
+        ...state,
+        cosmetics: { ...state.cosmetics, newItems: [] },
       };
     }
 

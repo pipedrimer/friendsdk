@@ -183,12 +183,38 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
                 Green Mine to run the numbers up.
               </li>
               <li>
-                <strong>Scanner</strong> — the only purchasable tool (1 RF). Peeks at a chosen
-                tile before you risk the dig.
-              </li>
-              <li>
                 <strong>Bank</strong> — your best perk. The at-risk haul only becomes real RF when
                 you secure it, and you keep <strong>exactly</strong> that number.
+              </li>
+            </ul>
+          </section>
+
+          {/* Gear Locker */}
+          <section className="htp-section">
+            <h3 className="htp-head">
+              <SparklesIcon className="rf-icon" aria-hidden="true" /> GEAR LOCKER (DURABLE COSMETICS)
+            </h3>
+            <p className="htp-p">
+              Open <strong>GEAR</strong> in the top bar (or the pre-run screen) to style your
+              Friend: <strong>coats</strong>, <strong>helmets</strong>,{" "}
+              <strong>pickaxe skins</strong> and <strong>auras</strong>. They are{" "}
+              <strong>visual only</strong> — they never change a tile, the odds, or the payouts.
+            </p>
+            <ul className="htp-list">
+              <li>
+                <strong>Shop gear</strong> is a one-time purchase in simulated RF from your Vault
+                (e.g. the Ember Pickaxe for 2 RF, Sunstone Coat for 4 RF, Storm Aura for 6 RF). You
+                buy it once and it stays unlocked for this session.
+              </li>
+              <li>
+                <strong>Trophy gear</strong> is earned free by playing: the <strong>Golden Helm</strong>{" "}
+                for a full clear, the <strong>Deep-Seam Royal Coat</strong> for banking 25 RF in one
+                run, the <strong>Diamond Pickaxe</strong> for 100 safe digs, and the{" "}
+                <strong>Legend Glow</strong> for banking 100 RF total.
+              </li>
+              <li>
+                A <strong>NEW</strong> badge on the GEAR button shows unlocks you have not viewed
+                yet. All RF and gear is <strong>simulated</strong> and resets with the session.
               </li>
             </ul>
           </section>
@@ -214,7 +240,7 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
             <ul className="htp-list">
               <li><strong>Tap / click</strong> a tile to dig it.</li>
               <li><strong>Keyboard:</strong> Arrow keys to move, <strong>Enter / Space</strong> to dig, <strong>C</strong> = Bank, <strong>Esc</strong> = close this guide.</li>
-              <li><strong>Top bar:</strong> DARK / LIGHT theme, SOUND on/off, and MOTION / STATIC (wobble-free mode).</li>
+              <li><strong>Top bar:</strong> DARK / LIGHT theme, SOUND on/off, MOTION / STATIC (wobble-free mode), GEAR (Gear Locker) and HELP.</li>
             </ul>
           </section>
 

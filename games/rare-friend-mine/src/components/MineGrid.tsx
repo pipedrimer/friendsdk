@@ -1,5 +1,5 @@
 import React, { useRef } from "react";
-import type { MineTile, ScanResult } from "../types/game.js";
+import type { MineTile } from "../types/game.js";
 import { formatRf } from "../engine/economy.js";
 import {
   BombIcon,
@@ -9,19 +9,14 @@ import {
   CoinSplitIcon,
   CursedEyeIcon,
   DropletIcon,
-  QuestionIcon,
-  RadarIcon,
   ResourceIcon,
   ShieldIcon,
-  SparklesIcon,
-  WarningIcon,
 } from "./Icons.js";
 
 interface MineGridProps {
   board: MineTile[];
   disabled: boolean;
   selectedTileIndex: number | null;
-  lastScanResult?: ScanResult;
   crashing?: boolean;
   crashTileId?: number | null;
   onSelect: (tileId: number) => void;
@@ -39,7 +34,6 @@ export function MineGrid({
   board,
   disabled,
   selectedTileIndex,
-  lastScanResult,
   crashing = false,
   crashTileId = null,
   onSelect,
@@ -89,7 +83,6 @@ export function MineGrid({
     >
       {board.map((tile, index) => {
         const isRevealing = selectedTileIndex === index;
-        const isScanned = lastScanResult?.tileId === index;
         const isRevealed = tile.revealed;
 
         // During a detonation crash, every unrevealed mine detonates in a shockwave
@@ -109,10 +102,6 @@ export function MineGrid({
         let tileContent: React.ReactNode = null;
         let tileAriaLabel = `Tile row ${row + 1}, column ${col + 1}: unrevealed`;
         let tileClasses = "mine-tile";
-
-        if (isScanned && !shown) {
-          tileClasses += ` scanned-${lastScanResult.signal}`;
-        }
 
         if (isRevealing) {
           tileClasses += " is-revealing";
@@ -190,17 +179,7 @@ export function MineGrid({
           // Unrevealed tile state
           tileContent = (
             <div className="tile-inner unrevealed-content">
-              {isScanned ? (
-                <span className="scan-indicator-badge">
-                  {lastScanResult.signal === "danger"
-                    ? <WarningIcon />
-                    : lastScanResult.signal === "treasure"
-                      ? <SparklesIcon />
-                      : <QuestionIcon />}
-                </span>
-              ) : (
-                <span className="tile-coord">{index + 1}</span>
-              )}
+              <span className="tile-coord">{index + 1}</span>
             </div>
           );
         }

@@ -1,6 +1,7 @@
-import React, { useEffect, useReducer, useRef, useState } from "react";
+import React, { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { GameComponentProps } from "@rarefriends/friendsdk/runtime";
 import type { GameSnapshot } from "@rarefriends/friendsdk/game";
+import type { CosmeticSlot } from "../types/game.js";
 import { createInitialState, mineReducer } from "../engine/mineEngine.js";
 import { MineSoundKit } from "../audio/soundKit.js";
 import { GameHud } from "./GameHud.js";
@@ -12,9 +13,10 @@ import { ErrorPanel, LoadingScreen } from "./ErrorPanel.js";
 import { MineCountSelector } from "./MineCountSelector.js";
 import { StakeSelector } from "./StakeSelector.js";
 import { HowToPlay } from "./HowToPlay.js";
+import { CosmeticsLocker } from "./CosmeticsLocker.js";
 import { formatRf } from "../engine/economy.js";
 import { formatMultiplier, getDangerTier, RULES } from "../engine/rules.js";
-import { CloseIcon, QuestionIcon, WarningIcon } from "./Icons.js";
+import { CloseIcon, QuestionIcon, SparklesIcon, WarningIcon } from "./Icons.js";
 
 export function MineGame({ friendId, client, paused }: GameComponentProps) {
   const [state, dispatch] = useReducer(mineReducer, friendId, createInitialState);
@@ -23,6 +25,7 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
   const [muted, setMuted] = useState(false);
   const [reducedMotion, setReducedMotion] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showGear, setShowGear] = useState(false);
 
   const [theme, setTheme] = useState<"light" | "invert">("light");
 
@@ -81,7 +84,7 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
 
   // Handle tile reveal animation delay
   useEffect(() => {
-    if (state.phase !== "revealing") return;
+    if (state.phase !== "revealing" || paused) return;
 
     soundKitRef.current?.play("dig");
     const delay = reducedMotion ? 100 : RULES.animationDurationMs;
@@ -91,11 +94,11 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
     }, delay);
 
     return () => window.clearTimeout(timer);
-  }, [state.phase, reducedMotion]);
+  }, [state.phase, paused, reducedMotion]);
 
   // Handle mine detonation crash animation: keep the run on-screen while the field detonates.
   useEffect(() => {
-    if (state.phase !== "crashing") return;
+    if (state.phase !== "crashing" || paused) return;
 
     soundKitRef.current?.play("mineExplosion");
     const delay = reducedMotion
@@ -107,7 +110,7 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
     }, delay);
 
     return () => window.clearTimeout(timer);
-  }, [state.phase, reducedMotion]);
+  }, [state.phase, paused, reducedMotion]);
 
   // Audio trigger on tile resolution
   useEffect(() => {
@@ -134,6 +137,13 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
       sound.play("boostActivate");
     }
   }, [state.lastResolution, state.safeDigCount]);
+
+  // Chime when trophy gear drops in
+  useEffect(() => {
+    if (state.cosmetics.newItems.length > 0) {
+      soundKitRef.current?.play("rareFound");
+    }
+  }, [state.cosmetics.newItems.length]);
 
   // Keyboard shortcut listener
   useEffect(() => {
@@ -205,6 +215,37 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
     setReducedMotion((prev) => !prev);
   };
 
+  const handleOpenGear = () => {
+    soundKitRef.current?.unlock();
+    soundKitRef.current?.play("click");
+    setShowGear(true);
+  };
+
+  const handleCloseGear = useCallback(() => {
+    soundKitRef.current?.play("click");
+    setShowGear(false);
+  }, []);
+
+  const handlePurchaseCosmetic = (itemId: string) => {
+    soundKitRef.current?.unlock();
+    soundKitRef.current?.play("rareFound");
+    dispatch({ type: "PURCHASE_COSMETIC", itemId });
+  };
+
+  const handleEquipCosmetic = (itemId: string) => {
+    soundKitRef.current?.play("click");
+    dispatch({ type: "EQUIP_COSMETIC", itemId });
+  };
+
+  const handleUnequipCosmetic = (slot: CosmeticSlot) => {
+    soundKitRef.current?.play("click");
+    dispatch({ type: "UNEQUIP_COSMETIC", slot });
+  };
+
+  const handleAckCosmetics = useCallback(() => {
+    dispatch({ type: "ACK_COSMETICS" });
+  }, []);
+
   if (loading) {
     return <LoadingScreen message="CONNECTING RARE FRIENDS MINE..." />;
   }
@@ -229,10 +270,12 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
         muted={muted}
         reducedMotion={reducedMotion}
         theme={theme}
+        newCosmetics={state.cosmetics.newItems.length}
         onToggleMute={handleToggleMute}
         onToggleReducedMotion={handleToggleReducedMotion}
         onToggleTheme={handleToggleTheme}
         onToggleHelp={() => setShowHelp((v) => !v)}
+        onToggleCosmetics={handleOpenGear}
       />
 
       {/* Error or Notice Alert */}
@@ -261,7 +304,7 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
           </div>
 
           <div className="miner-feature-showcase">
-            <FriendActor friendId={friendId} state={state} reducedMotion={reducedMotion} />
+            <FriendActor friendId={friendId} state={state} cosmetics={state.cosmetics} reducedMotion={reducedMotion} />
           </div>
 
           {/* Mine + Stake Configuration */}
@@ -305,22 +348,38 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
             <strong>SIMULATED RF ECONOMY</strong> — No real tokens are spent or burned in this Vibeathon preview.
           </p>
 
-          <button
-            type="button"
-            className="how-to-play-delve-btn"
-            onClick={() => setShowHelp(true)}
-            id="btn-how-to-play"
-            aria-haspopup="dialog"
-          >
-            <QuestionIcon className="rf-icon" aria-hidden="true" /> HOW TO PLAY
-          </button>
+          <div className="pre-run-cta-row">
+            <button
+              type="button"
+              className={`how-to-play-delve-btn ${state.cosmetics.newItems.length > 0 ? "has-new" : ""}`}
+              onClick={handleOpenGear}
+              id="btn-gear-locker-pre"
+              aria-haspopup="dialog"
+              aria-label="Open gear locker"
+            >
+              <SparklesIcon className="rf-icon" aria-hidden="true" /> GEAR LOCKER
+              {state.cosmetics.newItems.length > 0 && (
+                <span className="gear-new-badge" aria-hidden="true">{state.cosmetics.newItems.length}</span>
+              )}
+            </button>
+
+            <button
+              type="button"
+              className="how-to-play-delve-btn"
+              onClick={() => setShowHelp(true)}
+              id="btn-how-to-play"
+              aria-haspopup="dialog"
+            >
+              <QuestionIcon className="rf-icon" aria-hidden="true" /> HOW TO PLAY
+            </button>
+          </div>
         </section>
       ) : (
         /* Active Mining Delve View */
         <section className="active-mine-stage">
           <div className="mine-delve-layout">
             <aside className="friend-sidebar">
-              <FriendActor friendId={friendId} state={state} reducedMotion={reducedMotion} />
+              <FriendActor friendId={friendId} state={state} cosmetics={state.cosmetics} reducedMotion={reducedMotion} />
             </aside>
 
             <div className={`minefield-center${state.phase === "crashing" ? " crash-active" : ""}`}>
@@ -328,7 +387,6 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
                 board={state.board}
                 disabled={isInputDisabled}
                 selectedTileIndex={state.selectedTileIndex}
-                lastScanResult={state.lastScanResult}
                 crashing={state.phase === "crashing"}
                 crashTileId={state.lastResolution?.type === "mine" ? state.lastResolution.tileId : null}
                 onSelect={handleTileClick}
@@ -349,11 +407,22 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
       <ResultOverlay
         state={state}
         onPlayAgain={handleReturnToReady}
-        onDismissScan={() => dispatch({ type: "CLEAR_SCAN" })}
       />
 
       {/* How to Play guide */}
       <HowToPlay open={showHelp} onClose={() => setShowHelp(false)} />
+
+      {/* Gear Locker (durable cosmetics, simulated RF) */}
+      <CosmeticsLocker
+        open={showGear}
+        friendId={friendId}
+        state={state}
+        onPurchase={handlePurchaseCosmetic}
+        onEquip={handleEquipCosmetic}
+        onUnequip={handleUnequipCosmetic}
+        onAck={handleAckCosmetics}
+        onClose={handleCloseGear}
+      />
     </main>
   );
 }

@@ -1,4 +1,4 @@
-import type { ResourceRarity } from "../types/game.js";
+import type { DifficultyId, ResourceRarity } from "../types/game.js";
 
 export const RF_DECIMALS = 18n;
 export const RF_UNIT = 10n ** RF_DECIMALS;
@@ -7,11 +7,6 @@ export const RULES = {
   startingRf: 10n * RF_UNIT,
   defaultStakeRf: 1n * RF_UNIT,
   minStakeRf: 1n * RF_UNIT,
-
-  scannerCostRf: 1n * RF_UNIT,
-
-  curseExtraCostRf: 1n * RF_UNIT,
-  curseDurationDigs: 3,
 
   boostBonusMultiplierBps: 5000, // +0.50x to multiplier when boosted
   boostDigs: 2,
@@ -68,7 +63,7 @@ export const MINES_CONFIG = {
 export const POPULAR_MINE_PRESETS = [5, 7, 10, 15, 20, 24] as const;
 
 export type DangerTier = {
-  id: string;
+  id: DifficultyId;
   name: string;
   tagline: string;
   color: string;
@@ -131,35 +126,6 @@ export function calculateMinesMultiplier(mineCount: number, step: number): numbe
 export function getPeakMultiplier(mineCount: number): number {
   const clampedMines = Math.min(Math.max(mineCount, MINES_CONFIG.minMines), MINES_CONFIG.maxMines);
   return calculateMinesMultiplier(clampedMines, MINES_CONFIG.totalTiles - clampedMines);
-}
-
-/**
- * Legacy difficulty bridge: maps legacy difficulty IDs to mine counts.
- */
-export const DIFFICULTY_MINE_COUNTS: Record<string, number> = {
-  novice: 5,
-  prospector: 8,
-  abyss: 12,
-  cataclysm: 16,
-};
-
-export function getDifficulty(id: string) {
-  const count = DIFFICULTY_MINE_COUNTS[id] ?? 5;
-  const tier = getDangerTier(count);
-  return {
-    id,
-    name: tier.name,
-    tagline: tier.tagline,
-    minesPerBoard: count,
-    initialMultiplierBps: getStartingMultiplier(count),
-  };
-}
-
-export const DIFFICULTIES = ["novice", "prospector", "abyss", "cataclysm"].map(getDifficulty);
-
-export function getStepMultiplier(idOrCount: string | number, step: number): number {
-  const count = typeof idOrCount === "number" ? idOrCount : (DIFFICULTY_MINE_COUNTS[idOrCount] ?? 5);
-  return calculateMinesMultiplier(count, step);
 }
 
 /** Format a multiplier (basis points) for display, e.g. 15000 -> "1.50", 12200 -> "1.22". */

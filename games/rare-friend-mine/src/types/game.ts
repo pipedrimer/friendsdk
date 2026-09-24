@@ -8,7 +8,7 @@ export type GamePhase =
   | "complete"
   | "error";
 
-export type DifficultyId = "novice" | "prospector" | "abyss" | "cataclysm";
+export type DifficultyId = "novice" | "prospector" | "abyss" | "cataclysm" | "inferno";
 
 export type MineType = "red" | "yellow" | "purple" | "blue" | "green";
 
@@ -54,13 +54,6 @@ export type MineTile =
       haulRf?: bigint;
     };
 
-export type ScanResult = {
-  tileId: number;
-  signal: "treasure" | "danger" | "unclear";
-  confidence: "low" | "medium" | "high";
-  message: string;
-};
-
 export type TileResolution =
   | {
       type: "rf";
@@ -100,6 +93,50 @@ export type FriendMood =
   | "explosion"
   | "banking";
 
+/** Cosmetic slots layered over the canonical Friend sprite. */
+export type CosmeticSlot = "coat" | "helmet" | "pickaxe" | "aura";
+
+/** Achievement rule that grants a trophy cosmetic for free (no RF cost). */
+export type CosmeticEarnRule =
+  | { kind: "full-clear" }
+  | { kind: "single-bank"; thresholdRf: bigint }
+  | { kind: "session-banked"; thresholdRf: bigint }
+  | { kind: "safe-digs"; threshold: number };
+
+/**
+ * A durable cosmetic: a one-time simulated-RF purchase from the Vault or a
+ * free achievement trophy. Visual only — never changes odds or payouts.
+ * Session-scoped (the sandbox has no storage); all RF is simulated.
+ */
+export type CosmeticItem = {
+  id: string;
+  slot: CosmeticSlot;
+  name: string;
+  blurb: string;
+  /** Simulated RF price; 0n for achievement trophies. */
+  priceRf: bigint;
+  earn?: CosmeticEarnRule;
+  /** Coat palette override (primary body / accent head colors). */
+  palette?: { primary: string; accent: string };
+  /** Single render color for helmet, pickaxe skin or aura. */
+  color?: string;
+};
+
+export type CosmeticsState = {
+  unlocked: string[];
+  equipped: Record<CosmeticSlot, string | null>;
+  /** Unlocks not yet seen in the Gear Locker (drives the HUD NEW badge). */
+  newItems: string[];
+};
+
+/** Session counters that unlock achievement trophies. */
+export type SessionStats = {
+  safeDigs: number;
+  bankedRf: bigint;
+  bestSingleBankRf: bigint;
+  fullClears: number;
+};
+
 export type MineRun = {
   phase: GamePhase;
   runId: string;
@@ -123,7 +160,6 @@ export type MineRun = {
 
   shieldCharges: number;
   boostDigsRemaining: number;
-  curseDigsRemaining: number;
 
   selectedTileIndex: number | null;
   revealedTileIds: number[];
@@ -133,8 +169,10 @@ export type MineRun = {
   startedAt: number;
   completedAt?: number;
 
+  cosmetics: CosmeticsState;
+  stats: SessionStats;
+
   lastResolution?: TileResolution;
-  lastScanResult?: ScanResult;
   history: string[];
   errorMessage?: string;
 };
@@ -143,14 +181,15 @@ export type MineAction =
   | { type: "INIT_READY"; friendId: bigint; availableRf?: bigint }
   | { type: "START_RUN"; seed?: number }
   | { type: "RETURN_TO_READY" }
-  | { type: "SET_DIFFICULTY"; difficulty: DifficultyId }
   | { type: "SET_MINE_COUNT"; count: number }
   | { type: "SET_STAKE"; stakeRf: bigint }
   | { type: "SELECT_TILE"; tileId: number }
   | { type: "FINISH_REVEAL" }
   | { type: "FINISH_CRASH" }
-  | { type: "SCAN"; tileId: number }
-  | { type: "CLEAR_SCAN" }
   | { type: "BANK" }
   | { type: "END_RUN" }
-  | { type: "SET_ERROR"; message: string };
+  | { type: "SET_ERROR"; message: string }
+  | { type: "PURCHASE_COSMETIC"; itemId: string }
+  | { type: "EQUIP_COSMETIC"; itemId: string }
+  | { type: "UNEQUIP_COSMETIC"; slot: CosmeticSlot }
+  | { type: "ACK_COSMETICS" };
