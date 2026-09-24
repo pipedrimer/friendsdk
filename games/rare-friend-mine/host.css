@@ -44,3 +44,17 @@ body {
     --rf-game-aspect-ratio: 4 / 3;
   }
 }
+
+/* Dock the trusted runtime toolbar (mode badge, Friend selector, wallet) as a
+   bar ABOVE the game instead of leaving it overlaid on the frame's bottom edge.
+   The wallet identity controls stay visible and nothing blocks in-game buttons. */
+.rf-game-frame .rf-frame-toolbar {
+  position: relative;
+  order: -1;
+  left: auto;
+  right: auto;
+  bottom: auto;
+  width: 100%;
+  gap: 8px;
+  border-bottom: 1px solid var(--rf-frame-accent, rgba(255, 215, 94, 0.55));
+}

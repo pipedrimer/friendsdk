@@ -84,6 +84,36 @@ async function assertTileSize(game, label, min) {
   assert.ok(box.width >= min && box.height >= min, `${label}: tiles must be ${min}px+ for touch (got ${Math.round(box.width)}x${Math.round(box.height)})`);
 }
 
+// GEAR / DARK / SOUND / MOTION / HELP must sit centered under the HUD stats,
+// not pushed to one side, on narrow phone frames.
+async function assertHudClusterCentered(game, label) {
+  const cluster = await game.locator(".hud-util-cluster").boundingBox();
+  const hud = await game.locator(".game-hud").boundingBox();
+  assert.ok(cluster && hud, `${label}: util cluster and HUD must be laid out`);
+  const delta = Math.abs(cluster.x + cluster.width / 2 - (hud.x + hud.width / 2));
+  assert.ok(delta <= 6, `${label}: util cluster is ${Math.round(delta)}px off the HUD center`);
+}
+
+// The START DELVE button and the GEAR LOCKER / HOW TO PLAY row below it must be
+// reachable in the tall portrait frame — either on-screen or via the app scroll.
+async function assertReadyCtaReachable(game, label) {
+  for (const id of ["#btn-start-mine", "#btn-gear-locker-pre"]) {
+    const reach = await game.locator(id).evaluate((el) => {
+      const app = el.closest(".rare-friend-mine-app");
+      if (!app) return { ok: false, reason: "no app" };
+      const rect = el.getBoundingClientRect();
+      const appRect = app.getBoundingClientRect();
+      return {
+        ok: rect.top < appRect.height || app.clientHeight < app.scrollHeight,
+        top: Math.round(rect.top),
+        appHeight: Math.round(appRect.height),
+        scrollHeight: app.scrollHeight,
+      };
+    });
+    assert.ok(reach.ok, `${label}: ${id} must be visible or scrollable into view (${JSON.stringify(reach)})`);
+  }
+}
+
 let totals = [];
 let results = { portrait: null, landscape: null };
 
@@ -96,6 +126,10 @@ await testGame("./games/rare-friend-mine", {
     await game.getByRole("heading", { name: /RARE FRIENDS/ }).waitFor();
     // Frame must switch to the tall 1/1.75 portrait layout on a phone.
     await assertFrameGeometry(page, "portrait", { minHeight: 600, maxHeight: 740, maxWidth: 395 });
+
+    // Utility controls centered and pre-run CTAs reachable in the tall frame.
+    await assertHudClusterCentered(game, "portrait");
+    await assertReadyCtaReachable(game, "portrait");
 
     // Gear Locker opens inside the tall portrait frame without horizontal overflow.
     await game.getByRole("button", { name: /Open gear locker/ }).first().click();
@@ -121,6 +155,8 @@ await testGame("./games/rare-friend-mine", {
     await game.getByRole("heading", { name: /RARE FRIENDS/ }).waitFor();
     // Frame must switch to the height-capped 4/3 landscape layout on a short phone.
     await assertFrameGeometry(page, "landscape", { minHeight: 220, maxHeight: 380, maxWidth: 670 });
+    await assertHudClusterCentered(game, "landscape");
+    await assertReadyCtaReachable(game, "landscape");
     results.landscape = await delveAndBank({ game, page, label: "landscape", minTile: 36 });
     totals.push(results.landscape.banked);
     console.log(`PASS mobile landscape (digs=${results.landscape.digs}, banked=${results.landscape.banked}).`);
