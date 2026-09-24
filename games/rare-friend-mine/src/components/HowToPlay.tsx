@@ -9,6 +9,29 @@ import {
   SparklesIcon,
   WarningIcon,
 } from "./Icons.js";
+import {
+  MULTIPLIER_TABLE,
+  POPULAR_MINE_PRESETS,
+  calculateMinesMultiplier,
+  formatMultiplier,
+} from "../engine/rules.js";
+
+function multiplierPeak(mineCount: number): string {
+  const safeTiles = 25 - mineCount;
+  const peakBps = calculateMinesMultiplier(mineCount, safeTiles);
+  if (safeTiles === 1) return `${formatMultiplier(peakBps)}x`;
+  return `${Math.round(peakBps / 10000).toLocaleString("en-US")}x`;
+}
+
+function nextRounds(mineCount: number): string {
+  const safeTiles = 25 - mineCount;
+  if (safeTiles <= 1) return "one safe tile only";
+  const nexts: string[] = [];
+  for (let round = 2; round <= Math.min(4, safeTiles); round++) {
+    nexts.push(`${formatMultiplier(MULTIPLIER_TABLE[mineCount][round - 1])}x`);
+  }
+  return nexts.join(" → ");
+}
 
 interface HowToPlayProps {
   open: boolean;
@@ -122,12 +145,14 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
                 </tr>
               </thead>
               <tbody>
-                <tr><td>5</td><td>1.22x</td><td>1.23x → 1.25x → 1.26x</td><td>31,987x</td></tr>
-                <tr><td>7</td><td>1.35x</td><td>1.38x → 1.40x → 1.43x</td><td>304,547x</td></tr>
-                <tr><td>10</td><td>1.62x</td><td>1.67x → 1.72x → 1.79x</td><td>2,234,760x</td></tr>
-                <tr><td>15</td><td>2.44x</td><td>2.60x → 2.80x → 3.06x</td><td>2,537,438x</td></tr>
-                <tr><td>20</td><td>4.88x</td><td>5.85x → 7.47x → 10.73x</td><td>46,812x</td></tr>
-                <tr><td>24</td><td>24.38x</td><td>one safe tile only</td><td>24.38x</td></tr>
+                {POPULAR_MINE_PRESETS.map((m) => (
+                  <tr key={m}>
+                    <td>{m}</td>
+                    <td>{formatMultiplier(MULTIPLIER_TABLE[m][0])}x</td>
+                    <td>{nextRounds(m)}</td>
+                    <td>{multiplierPeak(m)}</td>
+                  </tr>
+                ))}
               </tbody>
             </table>
             <p className="htp-note">

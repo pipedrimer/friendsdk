@@ -62,6 +62,20 @@ export const MINES_CONFIG = {
  */
 export const POPULAR_MINE_PRESETS = [5, 7, 10, 15, 20, 24] as const;
 
+/**
+ * Tune the win here: explicit per-round multipliers (bps, 10000 = 1.00x) for
+ * each preset mines count. These override the derived fair-odds values below.
+ * The engine, simulation, and Help table all read this same table.
+ */
+export const MULTIPLIER_TABLE: Record<number, number[]> = {
+  5: [12187,12315,12457,12617,12796,12999,13231,13499,13811,14181,14625,15166,15843,16713,17874,19500,21937,25999,34125,58500],
+  7: [13540,13764,14015,14299,14625,14999,15437,15953,16575,17332,18281,19500,21124,23400,26812,32499,43875,78000],
+  10: [16249,16713,17249,17874,18612,19500,20583,21937,23677,25999,29250,34125,42249,58500,107250],
+  15: [24375,25999,28031,30642,34125,39000,46312,58500,82875,156000],
+  20: [48750,58500,74749,107250,204750],
+  24: [243750],
+};
+
 export type DangerTier = {
   id: DifficultyId;
   name: string;
@@ -90,6 +104,8 @@ export function calculateRoundMultiplier(mineCount: number, round: number): numb
   const safeTiles = MINES_CONFIG.totalTiles - clampedMines;
   if (round <= 0) return 10000;
   if (round > safeTiles) round = safeTiles;
+  const tuned = MULTIPLIER_TABLE[clampedMines];
+  if (tuned && tuned[round - 1] !== undefined) return tuned[round - 1];
   const remainingTiles = MINES_CONFIG.totalTiles - (round - 1);
   const remainingSafe = safeTiles - (round - 1);
   if (remainingSafe <= 0) return 10000;
