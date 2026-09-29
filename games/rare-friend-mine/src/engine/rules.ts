@@ -251,17 +251,34 @@ export function formatMultiplier(multiplierBps: number): string {
 }
 
 /**
- * The seam yield limit, as a plain multiple of the stake: 250 means a single
- * delve can pay at most 250x what you put in. Used for display and for the
+ * The seam yield limit, as a plain multiple of the stake: 10,000 means a single
+ * delve can pay at most 10,000x what you put in. Used for display and for the
  * "yield cap reached" warning in the HUD.
  */
 export function getMaxHaulMultiple(): number {
   return RULES.maxHaulMultipleBps / 10000;
 }
 
-/** Format the yield limit for display, e.g. "250x". */
+/** Format the yield limit for display, e.g. "10,000x". */
 export function formatMaxHaulMultiple(): string {
-  return `${getMaxHaulMultiple()}x`;
+  return `${Math.round(getMaxHaulMultiple()).toLocaleString("en-US")}x`;
+}
+
+/** The per-run stake ceiling as whole RF, e.g. 7331. */
+export function getMaxStakeWhole(): number {
+  return Number(RULES.maxStakeRf / RF_UNIT);
+}
+
+/** Format the stake ceiling for display, e.g. "7,331 RF". */
+export function formatMaxStakeRf(): string {
+  return `${getMaxStakeWhole().toLocaleString("en-US")} RF`;
+}
+
+/** Format the largest single-delve payout from the ceiling stake, e.g. "73,310,000 RF". */
+export function formatMaxHaulAtMaxStake(): string {
+  const rf = (RULES.maxStakeRf * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+  const whole = rf / RF_UNIT;
+  return `${whole.toLocaleString("en-US")} RF`;
 }
 
 /**

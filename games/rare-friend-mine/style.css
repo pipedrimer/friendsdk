@@ -2493,6 +2493,19 @@ button:focus-visible, input:focus-visible {
   color: var(--ink-80);
 }
 
+/* The uncapped compounding curve, shown only to explain the cap. Kept muted so
+   it never reads as the advertised jackpot. */
+.htp-table td.htp-peak-raw {
+  color: var(--ink-60);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.htp-peak-capped {
+  font-weight: 700;
+  color: var(--color-gold-text);
+}
+
 .htp-footer {
   padding: 12px 16px;
   border-top: var(--rule-strong);

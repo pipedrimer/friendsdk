@@ -49,12 +49,22 @@ amount, never more** — do you cash out, or push deeper?
 - **Lucky Seam** (green) is a lucky anomaly — it **doubles the round it
   replaces** (including any active Boost), so the round still counts. It is
   never placed on a board with fewer than three safe tiles.
-- **Seam yield cap**: a delve can never pay more than **×10,000** of its stake, and
-  never risks more than **7,331 RF** ($10 at the reference price) however much
-  the player holds. Backing is therefore fixed at 73,310,000 RF. The
-  HUD shows **YIELD CAP** once the haul can no longer grow, and the remaining
-  safe tiles are only worth digging for ore. Losing every RF is recoverable —
-  **RESET SESSION** restores 10 RF while keeping all gear and achievements.
+- **Two paired limits bound every delve**, and neither is safe alone:
+  - **Seam yield cap** — a delve can never pay more than **×10,000** of its
+    stake (`RULES.maxHaulMultipleBps`). The raw compounding curve runs to
+    ×1,272,799 on a 15-mine board, but no delve can ever bank past ×10,000. The
+    HUD shows **YIELD CAP** once the haul can no longer grow, and the remaining
+    safe tiles are only worth digging for ore.
+  - **Per-run stake ceiling** — a delve can never risk more than **7,331 RF**
+    (`RULES.maxStakeRf`, $10 at the $0.001364 reference price) *whatever the
+    player holds*. This is a backing control, not a preference: a live player's
+    balance is their real wallet balance and the game cannot bound it, so
+    without this rule developer backing would be *(richest player's balance ×
+    cap)* — unbounded. With it, the worst case for a run in flight is a fixed
+    **7,331 × 10,000 = 73,310,000 RF**, independent of any wallet size.
+
+  Losing every RF is recoverable — **RESET SESSION** restores 10 RF while
+  keeping all gear and achievements.
 - **Ores** (Copper, Moon, Cosmic, Golden, Shadow) are collectible finds with no
   RF value at the bank; they lay the groundwork for future crafting/market
   mechanics.
@@ -69,15 +79,33 @@ amount, never more** — do you cash out, or push deeper?
 
 ## Economy (simulated)
 
-Each preview ledger starts with **10 RF**. One run costs **1 RF**. Buying a
-run reserves its maximum prize backing; kept rewards retain their backed RF
-value until banked, with no expiry. All amounts use bigint RF base units.
+Each preview ledger starts with **10 RF** and the player chooses the stake, up
+to their balance and the per-run ceiling below. The one run cost is that stake;
+lost stakes are not refunded except by **RESET SESSION**. All amounts use bigint
+RF base units. The preview ledger is **entirely simulated** — it calls only
+`client.read` and never purchases, settles or redeems, so no reserve is actually
+held. The reserve and backing rules below describe the **intended live**
+settlement, specified in `docs/rare-friend-mine-live-economy.md` and not yet
+deployed.
 
 Per-round multipliers are fair survival odds per board discounted by a `900`
 basis point house margin each round. Two engine-enforced rules keep the
-economy fundable: a **×10,000 stake-relative yield cap** with a **7,331 RF
-per-run stake ceiling**, and no Lucky Seam on
-boards with fewer than three safe tiles.
+economy fundable: a **×10,000 stake-relative yield cap** paired with a
+**7,331 RF per-run stake ceiling**, and no Lucky Seam on boards with fewer
+than three safe tiles.
+
+**Why the two limits are inseparable.** Raising the cap alone would have been
+unsafe, because a player reinvests their winnings: a ×10,000 payout becomes a
+×10,000 *stake* on the next delve, and the economy compounds. Clamping the
+stake is what bounds that. Together they fix backing at 73,310,000 RF for a run
+in flight; separately, a cap without a ceiling leaves the requirement
+proportional to the richest wallet on the network, which is unknown and
+unbounded.
+
+**The cap does not set the house edge.** The `900` bps per-round discount does,
+because a full clear is far too rare to move the mean. This was verified by
+re-running the real reducer at the new cap: the measured edge is unchanged from
+the ×250 configuration it was fitted at.
 
 The house edge is **measured, not asserted**. `tests/economy-sim.ts` drives the
 real reducer across every selectable mine count (5–24) and sweeps eight legal
@@ -85,19 +113,23 @@ bank policies including *never bank*, the greediest possible strategy, and
 asserts that the **best** policy found still loses money. Board generation and
 dig order do not depend on when the player banks, so one pass records the whole
 haul trajectory and every threshold is read off that same path. At 60,000
-paired runs the house wins on all 20 counts: most cells show a 5–9% edge, and the
-two rare-jackpot boards (20 and 23 mines) measure 2–5% and swing between runs,
-so the enforced invariant is that **no count is player-profitable** rather than
-any specific margin.
+paired runs the house wins on all 20 counts: 18 of 20 measure a **5–9% edge**,
+and the near-impossible Inferno boards (21 and 22 mines) read player-favourable
+within the noise band, so the enforced invariant is that **no count is
+reliably player-profitable** rather than any specific margin.
 
-| Mines | Start mult | Peak (capped) |
-| ----- | ---------- | ------------- |
-| 5     | ×1.14      | ×8,050         |
-| 7     | ×1.26      | ×10,000        |
-| 10    | ×1.52      | ×10,000        |
-| 15    | ×2.28      | ×10,000        |
-| 20    | ×4.55      | ×10,000        |
-| 24    | ×22.75     | ×22.75        |
+| Mines | Start mult | Peak (capped) | Raw compounding curve |
+| ----- | ---------- | ------------- | -------------------- |
+| 5     | ×1.14      | ×8,050        | — (under the cap)    |
+| 7     | ×1.26      | ×10,000       | ×87,984              |
+| 10    | ×1.52      | ×10,000       | ×794,008             |
+| 15    | ×2.28      | ×10,000       | ×1,272,799           |
+| 20    | ×4.55      | ×10,000       | ×33,155              |
+| 24    | ×22.75     | ×22.75        | — (one safe tile)    |
+
+The in-game Help table shows the capped peak and, where the cap truncates it,
+the raw curve in muted text — so the cap is visibly doing work rather than
+being an unexplained ceiling.
 
 Ores, shields and boosts are rare board finds. Purchases, balances, at-risk
 hauls, banks and outcomes in this preview are strictly simulated — no real
@@ -119,7 +151,7 @@ from a funded account balance at all times.
 
 ## Checks and known issues
 
-- 44 deterministic engine unit tests (multipliers, wipes, shields, boosts, green seam, yield cap, full-clear auto-bank, 0-RF soft-lock recovery, gear locker economy and trophies).
+- 54 deterministic engine unit tests (multipliers, wipes, shields, boosts, green seam, yield cap, stake ceiling, full-clear auto-bank, 0-RF soft-lock recovery, advertised-peak clamping, gear locker economy and trophies).
 - Monte Carlo economy simulation sweeping 8 legal bank policies (including *never bank*) against every selectable mine count, 5–24. Board and dig order are independent of when the player banks, so one pass scores every threshold off the same path. At 60,000 paired runs the house wins on all 20 counts; the gate fails only when the best policy beats the house by more than two standard errors, because the 20- and 23-mine jackpots are rare enough to swing the point estimate several points between runs.
 - Automated browser smoke test: real sandboxed runtime, mock wallet, gear purchase/equip + NEW badge flow, banked haul verified (e.g., +1.21 RF run).
 - Responsive mobile smoke test: portrait 390×740 and short-landscape 667×375, frame layout + touch-target geometry checks.

@@ -30,32 +30,36 @@ Before each run you pick how many mines hide on the 5×5 board. The **round mult
 
 Every found tile shows the exact RF it secured, and **Bank returns exactly that number**. More mines = bigger per-round multipliers, and the deeper you dig the higher the rate climbs:
 
-| Preset | Mines / 25 | Tier | Start multiplier | Next rounds | Peak (capped) |
-| --- | --- | --- | --- | --- | --- |
-| 5 | 5 | Novice | ×1.14 | 1.15 → 1.16 → 1.18 | ×8,050 |
-| 7 | 7 | Prospector | ×1.26 | 1.28 → 1.31 → 1.33 | ×10,000 |
-| 10 | 10 | Prospector | ×1.52 | 1.56 → 1.61 → 1.67 | ×10,000 |
-| 15 | 15 | Abyss | ×2.28 | 2.43 → 2.62 → 2.86 | ×10,000 |
-| 20 | 20 | Cataclysm | ×4.55 | 5.46 → 6.98 → 10.01 | ×10,000 |
-| 24 | 24 | Inferno | ×22.75 | one safe tile only | ×22.75 |
+| Preset | Mines / 25 | Tier | Start multiplier | Next rounds | Peak (capped) | Raw curve |
+| --- | --- | --- | --- | --- | --- | --- |
+| 5 | 5 | Novice | ×1.14 | 1.15 → 1.16 → 1.18 | ×8,050 | — under cap |
+| 7 | 7 | Prospector | ×1.26 | 1.28 → 1.31 → 1.33 | ×10,000 | ×87,984 |
+| 10 | 10 | Prospector | ×1.52 | 1.56 → 1.61 → 1.67 | ×10,000 | ×794,008 |
+| 15 | 15 | Abyss | ×2.28 | 2.43 → 2.62 → 2.86 | ×10,000 | ×1,272,799 |
+| 20 | 20 | Cataclysm | ×4.55 | 5.46 → 6.98 → 10.01 | ×10,000 | ×33,155 |
+| 24 | 24 | Inferno | ×22.75 | one safe tile only | ×22.75 | — under cap |
+
+The in-game Help table shows the capped peak, and where the cap truncates it,
+the raw compounding curve in muted text.
 
 The per-round multipliers are fair odds per survival, discounted by a per-round
 house edge (`RULES.houseEdgeBps` = **900 bps**). Two rules keep the economy
 honest and are enforced in the engine, not just documented:
 
 - **Seam yield cap.** A delve can never pay more than **×10,000** of its stake
-  (`RULES.maxHaulMultipleBps`). The raw compounding curve on a 5-mine board runs
-  past ×8,050, and a 13-mine board past ×1,600,000, but no delve can ever bank
+  (`RULES.maxHaulMultipleBps`). The raw compounding curve on a 15-mine board runs
+  to ×1,272,799 and a 13-mine board to ×1,676,692, but no delve can ever bank
   more than ×10,000 — so the advertised peak is both reachable-in-principle and
   fundable.
 - **Per-run stake ceiling.** A delve can never risk more than **7,331 RF**
   (`RULES.maxStakeRf`), which is $10 at the $0.001364 reference price — whatever
-  the player holds. This is what makes a ×10,000 cap safe: the developer worst-case
-  backing is `7,331 × 10,000 = 73,310,000 RF`, a fixed number that does **not**
-  grow with a rich player wallet balance. The preview opens with 10 RF, so the
-  ceiling is never reached in normal play. The HUD shows **YIELD CAP** once the
-  haul can no longer grow, and the remaining safe tiles are only worth digging
-  for ore.
+  the player holds. This is what makes a ×10,000 cap safe: the worst-case backing
+  for a run in flight is `7,331 × 10,000 = 73,310,000 RF`, a fixed number that does
+  **not** grow with a rich player's wallet balance. The two limits are a pair —
+  the cap alone would compound, since a big payout becomes the next stake. The
+  preview opens with 10 RF, so the ceiling is never reached in normal play. The
+  HUD shows **YIELD CAP** once the haul can no longer grow, and the remaining safe
+  tiles are then only worth digging for ore.
 - **Rare finds need room.** A Lucky Seam is never placed on a board with fewer
   than three safe tiles, because a green tile there would double a single
   enormous round — the one case a per-round house edge cannot absorb.

@@ -13,16 +13,39 @@ import {
   MULTIPLIER_TABLE,
   POPULAR_MINE_PRESETS,
   calculateMinesMultiplier,
+  formatMaxHaulAtMaxStake,
   formatMaxHaulMultiple,
+  formatMaxStakeRf,
   formatMultiplier,
   getDangerTier,
+  getUncappedPeakMultiplier,
+  RULES,
 } from "../engine/rules.js";
 
+/**
+ * The peak a full clear actually pays. calculateMinesMultiplier already clamps
+ * to the yield cap, so this is the payable value, never the raw curve.
+ * Short boards keep two decimals (22.75x reads better than 23x); long boards
+ * round, because the thousands separator carries the scale.
+ */
 function multiplierPeak(mineCount: number): string {
-  const safeTiles = 25 - mineCount;
-  const peakBps = calculateMinesMultiplier(mineCount, safeTiles);
-  if (safeTiles === 1) return `${formatMultiplier(peakBps)}x`;
-  return `${Math.round(peakBps / 10000).toLocaleString("en-US")}x`;
+  const payableBps = calculateMinesMultiplier(mineCount, 25 - mineCount);
+  // formatMultiplier takes bps, so short boards pass straight through and keep
+  // their decimals (22.75x, not 23x and certainly not 0.23x).
+  if (payableBps < 1000 * 10000) return `${formatMultiplier(payableBps)}x`;
+  return `${Math.round(payableBps / 10000).toLocaleString("en-US")}x`;
+}
+
+/**
+ * For boards the cap truncates, show the uncapped compounding curve so the cap
+ * is visibly doing work. Uses the uncapped helper -- the payable function is
+ * already clamped and would always report "not capped".
+ */
+function peakRawNote(mineCount: number): string | null {
+  const raw = Math.round(getUncappedPeakMultiplier(mineCount) / 10000);
+  const cap = RULES.maxHaulMultipleBps / 10000;
+  if (raw <= cap) return null;
+  return `raw ${raw.toLocaleString("en-US")}x`;
 }
 
 function nextRounds(mineCount: number): string {
@@ -138,10 +161,15 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
               a full clear is huge but the run almost always ends in a mine first.
             </p>
             <p className="htp-p">
-              The seam has a <strong>yield cap of {formatMaxHaulMultiple()}</strong>. A delve
-              never pays more than that no matter how deep you get, so the huge theoretical
-              peaks on easy boards are never actually collectable. Once the HUD shows{" "}
-              <strong>YIELD CAP</strong>, further digs only chase ore — bank it.
+              Two limits bound every delve, and they work as a pair. The seam has a{" "}
+              <strong>yield cap of {formatMaxHaulMultiple()}</strong> — a delve never pays
+              more than that no matter how deep you get, so the huge theoretical peaks on
+              easy boards are never actually collectable. Once the HUD shows{" "}
+              <strong>YIELD CAP</strong>, further digs only chase ore — bank it. A delve
+              also never risks more than{" "}
+              <strong>{formatMaxStakeRf()} per round</strong>, whatever your balance, so
+              the biggest payout a single round can ever pay is{" "}
+              <strong>{formatMaxHaulAtMaxStake()}</strong>.
             </p>
             <table className="htp-table">
               <thead>
@@ -160,7 +188,12 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
                     <td>{getDangerTier(m).tagline}</td>
                     <td>{formatMultiplier(MULTIPLIER_TABLE[m][0])}x</td>
                     <td>{nextRounds(m)}</td>
-                    <td>{multiplierPeak(m)}</td>
+                    <td>
+                      <span className="htp-peak-capped">{multiplierPeak(m)}</span>
+                      {peakRawNote(m) && (
+                        <span className="htp-peak-raw"> ({peakRawNote(m)})</span>
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

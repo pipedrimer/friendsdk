@@ -5,8 +5,12 @@ import { createInitialState, canStartRun, isOutOfRf, mineReducer } from "../src/
 import {
   calculateMinesMultiplier,
   calculateRoundMultiplier,
+  formatMaxHaulAtMaxStake,
+  formatMaxHaulMultiple,
+  formatMaxStakeRf,
   formatMultiplier,
   getDangerTier,
+  getMaxStakeWhole,
   getPeakMultiplier,
   getStartingMultiplier,
   getUncappedPeakMultiplier,
@@ -1019,6 +1023,78 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
       assert.equal(state.stakeRf, RULES.defaultStakeRf, "the opening stake is still 1 RF");
       assert.equal(RULES.startingRf, 10n * RF_UNIT, "the preview still starts with 10 RF");
     });
+
+    it("formats the ceiling and the resulting worst-case haul for display", () => {
+      assert.equal(getMaxStakeWhole(), 7331, "the ceiling is 7,331 whole RF");
+      assert.equal(formatMaxStakeRf(), "7,331 RF", "the ceiling is shown with a thousands separator");
+      assert.equal(
+        formatMaxHaulAtMaxStake(),
+        "73,310,000 RF",
+        "the advertised worst-case single-delve payout is derived, not hardcoded",
+      );
+      assert.equal(
+        formatMaxHaulAtMaxStake(),
+        `${(RULES.maxStakeRf * BigInt(RULES.maxHaulMultipleBps) / 10000n / RF_UNIT).toLocaleString("en-US")} RF`,
+        "the display value must equal ceiling x cap",
+      );
+    });
+  });
+
+  it("the advertised peak never exceeds what the engine will actually pay", () => {
+    // getPeakMultiplier drives the in-game Help table, so it must be the payable
+    // value, never the raw uncapped curve, which runs to x1,272,799 on a 15-mine
+    // board that the engine refuses to pay.
+    const cap = RULES.maxHaulMultipleBps;
+    for (let mines = 5; mines <= 24; mines++) {
+      const advertised = getPeakMultiplier(mines);
+      assert.ok(advertised > 0, `${mines} mines must advertise a positive peak`);
+      assert.ok(
+        advertised <= cap,
+        `${mines} mines advertises ${advertised} which is above the ${cap} cap`,
+      );
+      // Where the raw curve clears the cap, the advertised peak must sit exactly
+      // on it -- that is the whole point of the cap.
+      if (getUncappedPeakMultiplier(mines) > cap) {
+        assert.equal(advertised, cap, `${mines} mines should advertise the cap exactly`);
+      }
+    }
+  });
+
+  it("calculateMinesMultiplier is already capped, so the table cannot leak the raw curve", () => {
+    const cap = RULES.maxHaulMultipleBps;
+    for (let mines = 5; mines <= 24; mines++) {
+      const payable = calculateMinesMultiplier(mines, 25 - mines);
+      assert.ok(
+        payable <= cap,
+        `${mines} mines payable multiple ${payable} must never exceed the cap`,
+      );
+    }
+    // Prove the clamp is real: these boards compound far past it uncapped.
+    assert.ok(getUncappedPeakMultiplier(15) > 100 * cap, "15 mines raw curve is 100x the cap");
+  });
+
+  it("formats the cap and the ceiling with thousands separators", () => {
+    assert.equal(formatMaxHaulMultiple(), "10,000x", "the cap reads as 10,000x, not 10000x");
+    assert.equal(formatMaxStakeRf(), "7,331 RF");
+  });
+
+  it("the Help peak column renders the payable multiple at the right scale", () => {
+    // Guards a double-scaling bug: formatMultiplier takes bps, so a short
+    // board's 2275 bps must render as "22.75x", not "0.23x" and not "23x".
+    const peakLabel = (mineCount) => {
+      const bps = calculateMinesMultiplier(mineCount, 25 - mineCount);
+      return bps < 1000 * 10000
+        ? `${formatMultiplier(bps)}x`
+        : `${Math.round(bps / 10000).toLocaleString("en-US")}x`;
+    };
+    assert.equal(peakLabel(24), "22.75x", "the 24-mine single-safe-tile peak keeps its decimals");
+    assert.equal(peakLabel(5), "8,050x", "the 5-mine peak is under the cap and shown in full");
+    assert.equal(peakLabel(10), "10,000x", "a capped board shows exactly the cap");
+    // Nothing may render below 1x: a delve always at least returns the stake.
+    for (let mines = 5; mines <= 24; mines++) {
+      const shown = Number(peakLabel(mines).replace(/[x,]/g, ""));
+      assert.ok(shown >= 1, `${mines} mines renders as ${shown}x, which is below the stake`);
+    }
   });
 
   it("no lucky seam is placed on boards with fewer than three safe tiles", () => {
