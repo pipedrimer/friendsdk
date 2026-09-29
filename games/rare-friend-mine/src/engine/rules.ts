@@ -18,10 +18,17 @@ export const RULES = {
    * the yield cap safe to raise: the exposure becomes this constant times the
    * cap, instead of a whale's balance times the cap.
    *
-   * 7,331 RF is $10 at the current $0.001364/RF reference price. It is a
-   * governance constant, not a tuning knob -- the backing requirement is
+   * Denominated in RF, not USD. 7,331 RF was *chosen* because it was $10 at the
+   * $0.001364/RF reference price on 2026-09-28, but the number is fixed in RF
+   * and its dollar value is allowed to drift with the token price. Backing has
+   * to be stable, and backing is denominated in RF. The live contract must take
+   * this as a governance parameter, not a literal, so it can be moved without a
+   * redeploy if RF's price moves materially.
+   *
+   * It is a governance constant, not a tuning knob -- the backing requirement is
    * `maxStakeRf x maxHaulMultipleBps`, so raising one obliges a decision on the
-   * other. Revisit both if RF's price moves materially.
+   * other. A test pins that product at 73,310,000 RF so they cannot drift apart
+   * silently.
    */
   maxStakeRf: 7331n * RF_UNIT,
 

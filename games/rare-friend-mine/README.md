@@ -52,14 +52,15 @@ honest and are enforced in the engine, not just documented:
   more than ×10,000 — so the advertised peak is both reachable-in-principle and
   fundable.
 - **Per-run stake ceiling.** A delve can never risk more than **7,331 RF**
-  (`RULES.maxStakeRf`), which is $10 at the $0.001364 reference price — whatever
-  the player holds. This is what makes a ×10,000 cap safe: the worst-case backing
-  for a run in flight is `7,331 × 10,000 = 73,310,000 RF`, a fixed number that does
-  **not** grow with a rich player's wallet balance. The two limits are a pair —
-  the cap alone would compound, since a big payout becomes the next stake. The
-  preview opens with 10 RF, so the ceiling is never reached in normal play. The
-  HUD shows **YIELD CAP** once the haul can no longer grow, and the remaining safe
-  tiles are then only worth digging for ore.
+  (`RULES.maxStakeRf`) — whatever the player holds. This is what makes a ×10,000
+  cap safe: the worst-case backing for a run in flight is
+  `7,331 × 10,000 = 73,310,000 RF`, a fixed number that does **not** grow with a
+  rich player's wallet balance. The two limits are a pair — the cap alone would
+  compound, since a big payout becomes the next stake. The ceiling is fixed in
+  RF (it was picked as $10 at a $0.001364 reference price, but the dollar value
+  is allowed to drift); the preview opens with 10 RF, so the ceiling is never
+  reached in normal play. The HUD shows **YIELD CAP** once the haul can no longer
+  grow, and the remaining safe tiles are then only worth digging for ore.
 - **Rare finds need room.** A Lucky Seam is never placed on a board with fewer
   than three safe tiles, because a green tile there would double a single
   enormous round — the one case a per-round house edge cannot absorb.

@@ -56,12 +56,19 @@ amount, never more** — do you cash out, or push deeper?
     HUD shows **YIELD CAP** once the haul can no longer grow, and the remaining
     safe tiles are only worth digging for ore.
   - **Per-run stake ceiling** — a delve can never risk more than **7,331 RF**
-    (`RULES.maxStakeRf`, $10 at the $0.001364 reference price) *whatever the
-    player holds*. This is a backing control, not a preference: a live player's
-    balance is their real wallet balance and the game cannot bound it, so
-    without this rule developer backing would be *(richest player's balance ×
-    cap)* — unbounded. With it, the worst case for a run in flight is a fixed
-    **7,331 × 10,000 = 73,310,000 RF**, independent of any wallet size.
+    (`RULES.maxStakeRf`) *whatever the player holds*. This is a backing control,
+    not a preference: a live player's balance is their real wallet balance and
+    the game cannot bound it, so without this rule developer backing would be
+    *(richest player's balance × cap)* — unbounded. With it, the worst case for a
+    run in flight is a fixed **7,331 × 10,000 = 73,310,000 RF**, independent of
+    any wallet size.
+
+    The ceiling is **denominated in RF, not USD**. 7,331 RF was chosen because it
+    was $10 at the $0.001364/RF reference price on 2026-09-28, but the number is
+    fixed in RF and its dollar value is allowed to drift with the token price.
+    Backing is what has to be stable, and backing is denominated in RF. The live
+    contract must therefore take the ceiling as a governance parameter rather
+    than a literal.
 
   Losing every RF is recoverable — **RESET SESSION** restores 10 RF while
   keeping all gear and achievements.

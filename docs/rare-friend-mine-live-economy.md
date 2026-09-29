@@ -42,10 +42,13 @@ must implement:
    control, not a preference**. A live player's balance is their real wallet
    balance and the game cannot bound it, so without this rule the amount the
    developer must float would be `(richest player's balance × cap)` — unbounded
-   and unknown. With it, that figure is a constant. 7,331 RF is $10 at the
-   $0.001364/RF reference price observed on 2026-09-28; see "Open questions" for
-   the fact that a USD-denominated ceiling is a policy choice, not a stable
-   constant.
+   and unknown. With it, that figure is a constant.
+
+   **The ceiling is denominated in RF, not USD.** 7,331 RF is fixed; it was
+   *selected* because it was $10 at the $0.001364/RF reference price on
+   2026-09-28, but the dollar figure is provenance rather than policy. Backing is
+   what has to be stable, and backing is denominated in RF. See "Decisions taken"
+   for the price drift this accepts and the governance-parameter requirement.
 
 3. **Banks settle at the exact multiple.** Player calls `settle()` with the
    current run; reward is `min(stakeRf * multiplierBps / 10000, stakeRf * 10000)`
@@ -177,20 +180,34 @@ reference until then, and the preview ledger remains fully simulated.
   are enforced in the preview engine and must be reproduced by the contract, not
   re-derived later.
 
+## Decisions taken
+
+- **The live stake ceiling is a fixed RF amount, not a USD peg.** A run is
+  bounded at **7,331 RF**. That figure was *chosen* because it was $10 at the
+  $0.001364/RF reference price on 2026-09-28, but the $10 is the origin of the
+  number, not the rule: the rule is "7,331 RF, fixed". Consequences accepted
+  explicitly:
+  - The USD value of a run drifts with the RF price. At half the reference price
+    the ceiling is worth ~$5; at double it is ~$20. A fixed RF ceiling keeps the
+    *backing* requirement stable in the unit that actually has to be floated,
+    which is the property that matters, at the cost of a stable dollar cost to
+    the player.
+  - The ceiling must still be a **governance parameter** on the contract
+    (constructor argument or settable value), not a literal, so the team can move
+    it without a redeploy. It should be lowered if RF falls far enough that
+    7,331 RF becomes an unreasonable single bet, and raised if RF recovers.
+  - `maxStakeRf` and `maxHaulMultipleBps` must move together, because backing is
+    their product. The engine's test suite pins that product at 73,310,000 RF so
+    the two cannot drift apart silently.
+
 ## Open questions for the reviewer
 
 - Is a single `MinesGame` contract acceptable, or must per-run multiplier state
   live in an ERC-1155/consumable that survives redemptions?
 - Which randomness source (Dice integration vs. approved oracle) is authorized
   for stepwise safe/mine resolution?
-- Confirm the live stake ceiling and its currency anchor. The preview bounds a run
-  at 7,331 RF, which is $10 at the $0.001364 reference price on 2026-09-28. RF is
-  a volatile token, so a USD-denominated ceiling is a **policy choice that must be
-  re-checked against the live price**, not a constant: if RF falls, 7,331 RF is
-  worth less than $10, and if it rises, more. The alternative is a RF-denominated
-  ceiling that is stable but whose USD value drifts. The contract should accept
-  the ceiling as a constructor/settable governance parameter rather than a literal.
 - Confirm the backing figure. At the preview values the developer must be able to
-  float **73,310,000 RF** (~$100,000 at the reference price) for a single run in
-  flight. The reserve requirement is now bounded and predictable, but it is not
-  small, and the team should confirm they can fund it.
+  float **73,310,000 RF** (~$100,000 at the $0.001364 reference price) for a
+  single run in flight. The reserve requirement is bounded and predictable in RF,
+  but its dollar cost still moves with the price, and the team should confirm
+  they can fund it.
