@@ -6,7 +6,8 @@ The playable preview gates on a connected wallet + owned Rare Friends
 Generations NFT and runs a labeled **simulated** ledger. This document defines
 how live play should settle **exactly like the simulation**: the reward a
 player banks is their **stake × the compounding round multiplier** they reached,
-**capped at ×250** (see "Yield cap" below).
+**capped at ×10,000** and never risking more than **7,331 RF** (see "Yield
+cap" and "Stake ceiling" below).
 
 ## Goal
 
@@ -28,24 +29,41 @@ must implement:
    (`haul = haul * roundBps / 10000`), matching the simulation's BigInt math.
    `expired?` handles the case where a safe dig banks vs. a mine ends the run.
 
-2. **Yield cap.** `multiplierBps` is clamped to `250 * 10000` on every update,
+2. **Yield cap.** `multiplierBps` is clamped to `10000 * 10000` on every update,
    mirroring `applyMaxHaul` in `src/engine/economy.ts`. The cap is
    stake-relative, so it scales with the stake and needs no per-tier table. This
-   also bounds the reserve requirement in (3): without it a 5-mine run's raw
-   curve exceeds ×8,000 and the 10-mine curve exceeds ×2,000,000, which no
-   vault can fund at a 1 RF stake.
+   also bounds the reserve requirement in (4): without it a 5-mine run's raw
+   curve exceeds ×8,050, a 10-mine run exceeds ×794,000, and a 13-mine run
+   exceeds ×1,600,000, which no vault can fund at a meaningful stake.
+
+2b. **Stake ceiling.** A run's stake is clamped to `maxStakeRf` (**7,331 RF**)
+   when the run is opened, mirroring `RULES.maxStakeRf` and the `SET_STAKE` /
+   `START_RUN` clamps in `src/engine/mineEngine.ts`. This is a **backing
+   control, not a preference**. A live player's balance is their real wallet
+   balance and the game cannot bound it, so without this rule the amount the
+   developer must float would be `(richest player's balance × cap)` — unbounded
+   and unknown. With it, that figure is a constant. 7,331 RF is $10 at the
+   $0.001364/RF reference price observed on 2026-09-28; see "Open questions" for
+   the fact that a USD-denominated ceiling is a policy choice, not a stable
+   constant.
 
 3. **Banks settle at the exact multiple.** Player calls `settle()` with the
-   current run; reward is `min(stakeRf * multiplierBps / 10000, stakeRf * 250)`
+   current run; reward is `min(stakeRf * multiplierBps / 10000, stakeRf * 10000)`
    base units. A mine resolves the run with zero banked, exactly like the sim
    wiping the at-risk haul.
 
 4. **Backing / reserves.** Each purchased run must be funded such that free
    stake covers the run's **capped peak** prize
-   (`stake × min(full-clear multiplier, 250)` — a flat `stake × 250` for every
+   (`stake × min(full-clear multiplier, 10000)` — a flat `stake × 10000` for every
    count except Inferno, where the single safe tile peaks at `stake × 22.75`).
    This is the existing "reserve the maximum prize" rule from
    `contracts/README.md:152` applied per run, not per static outcome.
+
+   Because the stake ceiling in (2b) bounds the stake at 7,331 RF regardless of
+   the player wallet balance, the worst-case backing for a run in flight is a
+   **fixed 73,310,000 RF** (`7,331 × 10,000`), independent of how much RF any
+   player holds. That bound is the reason the cap is paired with a stake ceiling
+   rather than raised alone.
 
 5. **Deterministic RNG.** Random-safe dig vs. mine outcomes must come from a
    verifiable source (Dice-style on-chain randomness, or an approved oracle),
@@ -66,7 +84,7 @@ must implement:
 
 ## House edge evidence
 
-The `900` bps edge and `×250` cap were not chosen for feel; they were fitted
+The `900` bps edge was not chosen for feel; they were fitted
 against the **greediest legal strategy**, not a cautious one. An early revision
 of this project verified only `bank at >= 2 RF` and reported a healthy economy,
 while `never bank` actually paid a player **8% more than they staked**. The
@@ -86,12 +104,19 @@ runs the full 5–24 grid plus a dense threshold sweep in seconds:
 | --- | --- | --- |
 | `300` bps + per-tier caps | 1.081 RF | rejected, player-profitable |
 | `700` bps + ×250 cap | 0.985 RF | rejected, under 2% margin |
-| **`900` bps + ×250 cap** | **0.944 RF** | **selected, 5.6% margin** |
+| **`900` bps + ×250 cap** | **0.944 RF** | **edge selected, 5.6% margin** |
 | `1100` bps + ×250 cap | 0.916 RF | rejected, margins too punishing |
+
+The edge was fitted at a ×250 cap, and the cap was then raised to ×10,000 once
+the stake ceiling made the backing bounded. Re-running the real reducer at
+60,000 paired runs confirms the edge is unchanged: **5–9%** on 18 of 20 counts,
+with only the two near-impossible Inferno boards (21, 22 mines) reading
+player-favourable. The cap does not set the edge, because the full clear is too
+rare to move the mean; the 900 bps per-round discount does.
 
 The authoritative number is the one the **real reducer** produces, since the
 re-implementation can drift from shipped behaviour. At 60,000 paired runs
-`tests/economy-sim.ts` reports point estimates of roughly **6–9%** house edge on
+`tests/economy-sim.ts` reports point estimates of roughly **5–9%** house edge on
 18 of 20 counts.
 
 | Mine count | Best policy | EV per 1 RF stake | House edge |
@@ -123,7 +148,7 @@ Two things a reviewer should carry into the live contract:
 `node scripts/check-games.mjs games/rare-friend-mine` currently reports
 `maximum 1000000000000000000 RF base units` — a **1 RF** maximum prize — because
 `game.json` declares a single deterministic 1 RF reference outcome. The engine
-can pay up to **250 RF** on a 1 RF stake, so the declared maximum does not
+can pay up to **10,000 RF** on a 1 RF stake, so the declared maximum does not
 describe the game.
 
 Do **not** "fix" this by editing the outcome table. A static `outcomes` array
@@ -148,8 +173,9 @@ reference until then, and the preview ledger remains fully simulated.
 - Real wallet + NFT gate stays enforced on the `/play/` build.
 - The compounding jackpots shown in the Help table are labeled simulation-only
   until the contract backs them.
-- The `×250` cap and the Lucky Seam placement gate are enforced in the preview
-  engine and must be reproduced by the contract, not re-derived later.
+- The `×10,000` cap, the 7,331 RF stake ceiling and the Lucky Seam placement gate
+  are enforced in the preview engine and must be reproduced by the contract, not
+  re-derived later.
 
 ## Open questions for the reviewer
 
@@ -157,7 +183,14 @@ reference until then, and the preview ledger remains fully simulated.
   live in an ERC-1155/consumable that survives redemptions?
 - Which randomness source (Dice integration vs. approved oracle) is authorized
   for stepwise safe/mine resolution?
-- What reserve multiplier may be offered live? The preview assumes a flat
-  `stake × 250` maximum prize, which is the same reserve for every count except
-  Inferno. Raising the cap raises the reserve linearly and the modelled house
-  edge changes with it.
+- Confirm the live stake ceiling and its currency anchor. The preview bounds a run
+  at 7,331 RF, which is $10 at the $0.001364 reference price on 2026-09-28. RF is
+  a volatile token, so a USD-denominated ceiling is a **policy choice that must be
+  re-checked against the live price**, not a constant: if RF falls, 7,331 RF is
+  worth less than $10, and if it rises, more. The alternative is a RF-denominated
+  ceiling that is stable but whose USD value drifts. The contract should accept
+  the ceiling as a constructor/settable governance parameter rather than a literal.
+- Confirm the backing figure. At the preview values the developer must be able to
+  float **73,310,000 RF** (~$100,000 at the reference price) for a single run in
+  flight. The reserve requirement is now bounded and predictable, but it is not
+  small, and the team should confirm they can fund it.

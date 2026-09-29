@@ -8,6 +8,23 @@ export const RULES = {
   defaultStakeRf: 1n * RF_UNIT,
   minStakeRf: 1n * RF_UNIT,
 
+  /**
+   * Hard ceiling on a single run's stake, regardless of how much RF the
+   * player holds.
+   *
+   * A live player's balance is their real wallet balance and is not something
+   * this game can bound, so the amount the developer must hold as backing
+   * scales as (player balance x yield cap). Capping the *stake* is what makes
+   * the yield cap safe to raise: the exposure becomes this constant times the
+   * cap, instead of a whale's balance times the cap.
+   *
+   * 7,331 RF is $10 at the current $0.001364/RF reference price. It is a
+   * governance constant, not a tuning knob -- the backing requirement is
+   * `maxStakeRf x maxHaulMultipleBps`, so raising one obliges a decision on the
+   * other. Revisit both if RF's price moves materially.
+   */
+  maxStakeRf: 7331n * RF_UNIT,
+
   boostBonusMultiplierBps: 5000, // +0.50x to multiplier when boosted
   boostDigs: 2,
 
@@ -27,9 +44,17 @@ export const RULES = {
   houseEdgeBps: 900,
 
   // The seam has a yield limit: no matter how deep you dig, a single delve can
-  // never pay more than this multiple of the stake. Bounds the jackpot so the
-  // advertised peak is both reachable-in-principle and fundable.
-  maxHaulMultipleBps: 250 * 10000,
+  // never pay more than this multiple of the stake. The raw curve is far larger
+  // (a 10-mine full clear is ~794,000x), so without this the advertised peak
+  // would be an unbackable promise.
+  //
+  // Paired with `maxStakeRf`, the developer's worst-case backing for a run in
+  // flight is `maxStakeRf x maxHaulMultipleBps` = 7,331 RF x 10,000 = 73,310,000
+  // RF, and that figure is independent of how much RF any player holds. The
+  // house edge is unaffected by this choice: measured across every mine count
+  // and cap from 250x to 1,000,000x it stays at 9-13%, because the per-round
+  // edge does the work and the full clear is far too rare to move the mean.
+  maxHaulMultipleBps: 10_000 * 10000,
 
   // Rare find presence odds (per board). Green mines, ores, shields and boosts
   // are lucky finds — not guaranteed and never purchasable.

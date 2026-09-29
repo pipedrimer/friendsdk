@@ -32,21 +32,28 @@ Every found tile shows the exact RF it secured, and **Bank returns exactly that 
 
 | Preset | Mines / 25 | Tier | Start multiplier | Next rounds | Peak (capped) |
 | --- | --- | --- | --- | --- | --- |
-| 5 | 5 | Novice | ×1.14 | 1.15 → 1.16 → 1.18 | ×250 |
-| 7 | 7 | Prospector | ×1.26 | 1.28 → 1.31 → 1.33 | ×250 |
-| 10 | 10 | Prospector | ×1.52 | 1.56 → 1.61 → 1.67 | ×250 |
-| 15 | 15 | Abyss | ×2.28 | 2.43 → 2.62 → 2.86 | ×250 |
-| 20 | 20 | Cataclysm | ×4.55 | 5.46 → 6.98 → 10.01 | ×250 |
+| 5 | 5 | Novice | ×1.14 | 1.15 → 1.16 → 1.18 | ×8,050 |
+| 7 | 7 | Prospector | ×1.26 | 1.28 → 1.31 → 1.33 | ×10,000 |
+| 10 | 10 | Prospector | ×1.52 | 1.56 → 1.61 → 1.67 | ×10,000 |
+| 15 | 15 | Abyss | ×2.28 | 2.43 → 2.62 → 2.86 | ×10,000 |
+| 20 | 20 | Cataclysm | ×4.55 | 5.46 → 6.98 → 10.01 | ×10,000 |
 | 24 | 24 | Inferno | ×22.75 | one safe tile only | ×22.75 |
 
 The per-round multipliers are fair odds per survival, discounted by a per-round
 house edge (`RULES.houseEdgeBps` = **900 bps**). Two rules keep the economy
 honest and are enforced in the engine, not just documented:
 
-- **Seam yield cap.** A delve can never pay more than **×250** of its stake
+- **Seam yield cap.** A delve can never pay more than **×10,000** of its stake
   (`RULES.maxHaulMultipleBps`). The raw compounding curve on a 5-mine board runs
-  past ×8,000, but only ×250 is ever collectable — so the advertised peak is
-  both reachable-in-principle and fundable. The HUD shows **YIELD CAP** once the
+  past ×8,050, and a 13-mine board past ×1,600,000, but no delve can ever bank
+  more than ×10,000 — so the advertised peak is both reachable-in-principle and
+  fundable.
+- **Per-run stake ceiling.** A delve can never risk more than **7,331 RF**
+  (`RULES.maxStakeRf`), which is $10 at the $0.001364 reference price — whatever
+  the player holds. This is what makes a ×10,000 cap safe: the developer worst-case
+  backing is `7,331 × 10,000 = 73,310,000 RF`, a fixed number that does **not**
+  grow with a rich player wallet balance. The preview opens with 10 RF, so the
+  ceiling is never reached in normal play. The HUD shows **YIELD CAP** once the
   haul can no longer grow, and the remaining safe tiles are only worth digging
   for ore.
 - **Rare finds need room.** A Lucky Seam is never placed on a board with fewer
@@ -140,7 +147,7 @@ RF_MINE_SIM_RUNS=60000 node games/rare-friend-mine/tests/run-sim.mjs   # high co
 
 At 60,000 paired runs the house wins against every legal policy on all 20 mine
 counts. Most cells settle at a **6–9%** house edge. Two cells — 20 and 23 mines,
-where the win depends on a rare ×250-class jackpot — are genuinely noisy and
+where the win depends on a rare ×10,000-class jackpot — are genuinely noisy and
 measured anywhere from **2% to 5%** across repeated runs, so no single run should
 be quoted as a precise margin. The invariant being enforced is the one in the
 table above: no mine count is player-profitable. The exit code is non-zero if

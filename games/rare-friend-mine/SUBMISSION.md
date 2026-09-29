@@ -49,7 +49,9 @@ amount, never more** — do you cash out, or push deeper?
 - **Lucky Seam** (green) is a lucky anomaly — it **doubles the round it
   replaces** (including any active Boost), so the round still counts. It is
   never placed on a board with fewer than three safe tiles.
-- **Seam yield cap**: a delve can never pay more than **×250** of its stake. The
+- **Seam yield cap**: a delve can never pay more than **×10,000** of its stake, and
+  never risks more than **7,331 RF** ($10 at the reference price) however much
+  the player holds. Backing is therefore fixed at 73,310,000 RF. The
   HUD shows **YIELD CAP** once the haul can no longer grow, and the remaining
   safe tiles are only worth digging for ore. Losing every RF is recoverable —
   **RESET SESSION** restores 10 RF while keeping all gear and achievements.
@@ -73,7 +75,8 @@ value until banked, with no expiry. All amounts use bigint RF base units.
 
 Per-round multipliers are fair survival odds per board discounted by a `900`
 basis point house margin each round. Two engine-enforced rules keep the
-economy fundable: a **×250 stake-relative yield cap**, and no Lucky Seam on
+economy fundable: a **×10,000 stake-relative yield cap** with a **7,331 RF
+per-run stake ceiling**, and no Lucky Seam on
 boards with fewer than three safe tiles.
 
 The house edge is **measured, not asserted**. `tests/economy-sim.ts` drives the
@@ -82,18 +85,18 @@ bank policies including *never bank*, the greediest possible strategy, and
 asserts that the **best** policy found still loses money. Board generation and
 dig order do not depend on when the player banks, so one pass records the whole
 haul trajectory and every threshold is read off that same path. At 60,000
-paired runs the house wins on all 20 counts: most cells show a 6–9% edge, and the
+paired runs the house wins on all 20 counts: most cells show a 5–9% edge, and the
 two rare-jackpot boards (20 and 23 mines) measure 2–5% and swing between runs,
 so the enforced invariant is that **no count is player-profitable** rather than
 any specific margin.
 
 | Mines | Start mult | Peak (capped) |
 | ----- | ---------- | ------------- |
-| 5     | ×1.14      | ×250          |
-| 7     | ×1.26      | ×250          |
-| 10    | ×1.52      | ×250          |
-| 15    | ×2.28      | ×250          |
-| 20    | ×4.55      | ×250          |
+| 5     | ×1.14      | ×8,050         |
+| 7     | ×1.26      | ×10,000        |
+| 10    | ×1.52      | ×10,000        |
+| 15    | ×2.28      | ×10,000        |
+| 20    | ×4.55      | ×10,000        |
 | 24    | ×22.75     | ×22.75        |
 
 Ores, shields and boosts are rare board finds. Purchases, balances, at-risk

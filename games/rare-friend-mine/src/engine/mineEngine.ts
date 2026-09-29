@@ -172,6 +172,10 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
       if (state.phase !== "ready") return state;
       let targetStake = action.stakeRf;
       if (targetStake < RULES.minStakeRf) targetStake = RULES.minStakeRf;
+      // The stake ceiling is a backing control, not a preference: it bounds
+      // `stake x yield cap` for every run regardless of wallet balance. Clamp
+      // here so no caller can route around it, and re-clamp on START_RUN below.
+      if (targetStake > RULES.maxStakeRf) targetStake = RULES.maxStakeRf;
       if (state.availableRf > 0n && targetStake > state.availableRf) {
         targetStake = state.availableRf;
       }
@@ -197,6 +201,17 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         return {
           ...state,
           errorMessage: `Insufficient simulated RF to delve with ${formatRf(state.stakeRf)} RF stake. ${OUT_OF_RF_MESSAGE}`,
+        };
+      }
+
+      // Re-assert the ceiling at run start. SET_STAKE already clamps, but the
+      // stake is part of persisted state, so an inflated value from an older
+      // save or a hand-built state must not be able to open an over-sized run.
+      if (state.stakeRf > RULES.maxStakeRf) {
+        return {
+          ...state,
+          stakeRf: RULES.maxStakeRf,
+          errorMessage: `Stake capped at ${formatRf(RULES.maxStakeRf)} RF per delve.`,
         };
       }
 

@@ -17,7 +17,10 @@ export function StakeSelector({
   disabled = false,
 }: StakeSelectorProps) {
   const currentWhole = Number(stakeRf / RF_UNIT);
-  const maxWhole = Number(availableRf / RF_UNIT);
+  // The selectable maximum is the smaller of what the player holds and the
+  // per-run ceiling. MAX and 1/2 follow this value too, so no control can
+  // offer a stake the engine would refuse.
+  const maxWhole = Math.min(Number(availableRf / RF_UNIT), Number(RULES.maxStakeRf / RF_UNIT));
 
   const handleStep = (delta: number) => {
     if (disabled) return;
@@ -39,7 +42,7 @@ export function StakeSelector({
 
   const handleMax = () => {
     if (disabled) return;
-    onChange(availableRf > RULES.minStakeRf ? availableRf : RULES.minStakeRf);
+    onChange(maxWhole >= 1 ? BigInt(maxWhole) * RF_UNIT : RULES.minStakeRf);
   };
 
   const presets = [1, 2, 5, 10];
@@ -83,7 +86,7 @@ export function StakeSelector({
         <button
           type="button"
           className="stake-preset-chip"
-          disabled={disabled || availableRf <= RULES.minStakeRf}
+          disabled={disabled || maxWhole < 1}
           aria-label="Maximum stake"
           onClick={handleMax}
         >
@@ -116,7 +119,7 @@ export function StakeSelector({
           type="button"
           className="stake-stepper-btn"
           onClick={() => handleStep(1)}
-          disabled={disabled || stakeRf >= availableRf}
+          disabled={disabled || stakeRf >= BigInt(maxWhole) * RF_UNIT}
           aria-label="Increase stake by 1 RF"
           title="Increase stake"
         >
@@ -128,7 +131,11 @@ export function StakeSelector({
         <span>
           VAULT: <strong>{formatRf(availableRf)} RF</strong>
         </span>
-        <span>PAYOUT = STAKE × MULTIPLIER</span>
+        <span>
+          {availableRf > RULES.maxStakeRf
+            ? `PER-DELVE MAX ${formatRf(RULES.maxStakeRf)} RF`
+            : "PAYOUT = STAKE × MULTIPLIER"}
+        </span>
       </div>
     </div>
   );

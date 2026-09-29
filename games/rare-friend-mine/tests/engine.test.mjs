@@ -370,14 +370,48 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
     assert.equal(calculateMinesMultiplier(24, 1), getStartingMultiplier(24), "24 mines peak is its single-start multiplier");
     assert.equal(getPeakMultiplier(24), getStartingMultiplier(24));
 
-    // The raw compounding curve is astronomically larger than the cap on the easy
-    // boards, which is exactly why the cap exists: a 5-mine full clear compounds
-    // past 8,000x but can only ever bank 250x.
-    assert.ok(
-      getUncappedPeakMultiplier(5) > 20 * RULES.maxHaulMultipleBps,
-      "5 mines uncapped compounding is far above the yield cap",
+    // The raw compounding curve outruns the cap by orders of magnitude on the
+    // long boards, which is why the cap exists. Assert this on the boards whose
+    // natural peak actually clears the cap, so the claim stays true if the cap
+    // is retuned in either direction.
+    const cappedBoards = [5, 7, 10, 13, 16, 20].filter(
+      (c) => getUncappedPeakMultiplier(c) > RULES.maxHaulMultipleBps,
     );
-    assert.equal(getPeakMultiplier(5), RULES.maxHaulMultipleBps, "5 mines full clear is clamped to the yield cap");
+    assert.ok(
+      cappedBoards.length >= 4,
+      `at least four sampled boards must exceed the ${RULES.maxHaulMultipleBps} bps cap`,
+    );
+    for (const count of cappedBoards) {
+      assert.ok(
+        getUncappedPeakMultiplier(count) > RULES.maxHaulMultipleBps,
+        `${count} mines natural peak clears the cap, so the cap must bind there`,
+      );
+    }
+    // The mid boards are where the cap does the most work: the natural curve is
+    // orders of magnitude past it there, not merely a little past.
+    for (const count of [10, 13, 16]) {
+      assert.ok(
+        getUncappedPeakMultiplier(count) > 20 * RULES.maxHaulMultipleBps,
+        `${count} mines uncapped compounding is at least 20x above the yield cap`,
+      );
+    }
+    // The shortest boards never reach the cap at all, so they must be exempt
+    // from the "cap binds" expectation elsewhere in this file.
+    assert.ok(
+      getUncappedPeakMultiplier(24) < RULES.maxHaulMultipleBps,
+      "24 mines peaks at a single start and never approaches the cap",
+    );
+    // getPeakMultiplier reports the advertised peak, which is the cap wherever
+    // the cap binds and the natural curve where it does not.
+    for (const count of [5, 7, 10, 13, 16, 20]) {
+      const natural = getUncappedPeakMultiplier(count);
+      const expected = Math.min(natural, RULES.maxHaulMultipleBps);
+      assert.equal(
+        getPeakMultiplier(count),
+        expected,
+        `${count} mines advertised peak is min(natural ${natural}, cap ${RULES.maxHaulMultipleBps})`,
+      );
+    }
   });
 
   it("18. Every safe dig grows the multiplier until the yield cap, then holds", () => {
@@ -848,7 +882,10 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
       if (state.phase !== "playing") break;
       state = mineReducer(state, { type: "SELECT_TILE", tileId: i });
       state = mineReducer(state, { type: "FINISH_REVEAL" });
-      hauls.push(state.atRiskRf);
+      // A full clear auto-banks on the last tile, which zeroes atRiskRf. Track
+      // the running peak of at-risk and banked so a completed run still reports
+      // what it actually paid.
+      hauls.push(state.atRiskRf > state.bankedRf ? state.atRiskRf : state.bankedRf);
     }
     return { state, hauls };
   }
@@ -872,21 +909,116 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
     }
   });
 
-  it("the cap binds on the long boards, which is what makes it a real bound", () => {
-    const capRf = (1n * RF_UNIT * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
-    for (const mines of [5, 7, 10, 15, 20]) {
-      const { state } = digAllSafe(mines);
+  it("a full clear banks its realized haul, capped, and the cap binds on most boards", () => {
+    const capBps = BigInt(RULES.maxHaulMultipleBps);
+    let boardsWhereCapBinds = 0;
+    for (let mines = 5; mines <= 24; mines++) {
+      const stake = 1n * RF_UNIT;
+      const capRf = (stake * capBps) / 10000n;
+      const { state, hauls } = digAllSafe(mines);
+      // A full clear banks whatever the board actually produced, including the
+      // Lucky Seam, ore and boost finds that the design curve does not model.
+      const realized = hauls[hauls.length - 1];
       assert.equal(
         state.bankedRf,
-        capRf,
-        `${mines} mines full clear must bank exactly the capped jackpot`,
+        realized,
+        `${mines} mines: a full clear must bank the realized haul`,
       );
+      assert.ok(
+        state.bankedRf <= capRf,
+        `${mines} mines: ${state.bankedRf} must not exceed the ${capRf} cap`,
+      );
+      if (state.bankedRf === capRf) boardsWhereCapBinds += 1;
+      if (MINES_CONFIG.totalTiles - mines <= 2) {
+        assert.ok(state.bankedRf < capRf, `${mines} mines never reaches the cap on a short board`);
+      }
     }
+    // Guard against a cap so high it stops being a real bound at all.
+    assert.ok(
+      boardsWhereCapBinds >= 10,
+      `the cap must actually bind on most boards, only ${boardsWhereCapBinds} of 20 are capped`,
+    );
   });
 
   it("the yield cap scales with the stake, not with a fixed RF amount", () => {
-    const { state } = digAllSafe(5);
-    assert.equal(state.bankedRf, 250n * RF_UNIT, "1 RF stake banks 250 RF at the 250x cap");
+    const capBps = BigInt(RULES.maxHaulMultipleBps);
+    const rf = (n) => BigInt(n) * RF_UNIT;
+    // Use a multiple far above the cap so the clamp, not the board, decides.
+    const huge = 1_000_000n * 10000n * RF_UNIT;
+    for (const stakeWhole of [1, 2, 7, 7331]) {
+      assert.equal(
+        applyMaxHaul(rf(stakeWhole), huge),
+        (rf(stakeWhole) * capBps) / 10000n,
+        `a ${stakeWhole} RF stake caps at ${stakeWhole} x the cap, not at a fixed RF amount`,
+      );
+    }
+    // The documented worst-case backing, spelled out so the number cannot drift
+    // silently: max stake x cap, independent of any player's wallet balance.
+    // 7,331 RF x 10,000x = 73,310,000 RF (~$100,000 at the reference price).
+    assert.equal(
+      (RULES.maxStakeRf * capBps) / 10000n,
+      73_310_000n * RF_UNIT,
+      "max stake x 10,000x cap must equal 73,310,000 RF of backing",
+    );
+  });
+
+  describe("per-run stake ceiling", () => {
+    /** createInitialState always opens with RULES.startingRf; give a state a balance. */
+    const withBalance = (rfWhole) => ({
+      ...createInitialState(1001n),
+      availableRf: BigInt(rfWhole) * RF_UNIT,
+    });
+
+    it("clamps a stake above the ceiling, even for a very rich player", () => {
+      let state = withBalance(1_000_000);
+      state = mineReducer(state, { type: "SET_STAKE", stakeRf: 1_000_000n * RF_UNIT });
+      assert.equal(
+        state.stakeRf,
+        RULES.maxStakeRf,
+        "a 1,000,000 RF balance still cannot stake above the ceiling",
+      );
+    });
+
+    it("allows a stake exactly at the ceiling", () => {
+      let state = withBalance(Number(RULES.maxStakeRf / RF_UNIT) * 2);
+      state = mineReducer(state, { type: "SET_STAKE", stakeRf: RULES.maxStakeRf });
+      assert.equal(state.stakeRf, RULES.maxStakeRf, "the ceiling itself is a legal stake");
+    });
+
+    it("still clamps to the balance when the balance is below the ceiling", () => {
+      let state = withBalance(5);
+      state = mineReducer(state, { type: "SET_STAKE", stakeRf: 4_000n * RF_UNIT });
+      assert.equal(state.stakeRf, 5n * RF_UNIT, "a 5 RF balance caps the stake at 5 RF, not at the ceiling");
+    });
+
+    it("still enforces the floor", () => {
+      let state = withBalance(5);
+      state = mineReducer(state, { type: "SET_STAKE", stakeRf: 0n });
+      assert.equal(state.stakeRf, RULES.minStakeRf, "a zero stake is lifted to the minimum");
+    });
+
+    it("refuses to start an over-sized run from a hand-built state", () => {
+      // SET_STAKE clamps, but stake also arrives from persisted state, so
+      // START_RUN must not trust it.
+      let state = withBalance(1_000_000);
+      state = mineReducer(state, { type: "SET_MINE_COUNT", count: 10 });
+      const tampered = {
+        ...state,
+        phase: "ready",
+        stakeRf: 900_000n * RF_UNIT,
+        errorMessage: undefined,
+      };
+      const after = mineReducer(tampered, { type: "START_RUN", seed: 5 });
+      assert.notEqual(after.phase, "playing", "an over-sized stake must not start a run");
+      assert.equal(after.stakeRf, RULES.maxStakeRf, "the stake is pulled back to the ceiling");
+      assert.match(after.errorMessage, /capped/i, "the player is told the stake was capped");
+    });
+
+    it("leaves the default stake untouched, so the preview opens exactly as before", () => {
+      const state = createInitialState(1001n);
+      assert.equal(state.stakeRf, RULES.defaultStakeRf, "the opening stake is still 1 RF");
+      assert.equal(RULES.startingRf, 10n * RF_UNIT, "the preview still starts with 10 RF");
+    });
   });
 
   it("no lucky seam is placed on boards with fewer than three safe tiles", () => {
