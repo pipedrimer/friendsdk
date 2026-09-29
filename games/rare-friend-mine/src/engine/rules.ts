@@ -26,9 +26,10 @@ export const RULES = {
    * redeploy if RF's price moves materially.
    *
    * It is a governance constant, not a tuning knob -- the backing requirement is
-   * `maxStakeRf x maxHaulMultipleBps`, so raising one obliges a decision on the
-   * other. A test pins that product at 73,310,000 RF so they cannot drift apart
-   * silently.
+   * `maxStakeRf x <the highest reachable cap rung>`, so raising this or the cap
+   * ladder obliges a decision on the other. A test pins that product at
+   * 879,720,000 RF and asserts 18 mines is the last capped board, so the two
+   * cannot drift apart silently.
    */
   maxStakeRf: 7331n * RF_UNIT,
 
@@ -51,17 +52,40 @@ export const RULES = {
   houseEdgeBps: 900,
 
   // The seam has a yield limit: no matter how deep you dig, a single delve can
-  // never pay more than this multiple of the stake. The raw curve is far larger
-  // (a 10-mine full clear is ~794,000x), so without this the advertised peak
-  // would be an unbackable promise.
+  // never pay more than a board-specific multiple of the stake. The raw curve
+  // is far larger (a 10-mine full clear is ~794,000x), so without this the
+  // advertised peak would be an unbackable promise.
+  //
+  // The limit is a LADDER, not one flat number, so that harder boards are not
+  // all pinned to the same ceiling. `haulCapBaseMultiple` is both the floor and
+  // the step size: 7 mines is the first rung at 10,000x, and every additional
+  // mine buys another 10,000x (8 -> 20,000x, 9 -> 30,000x, ...). Boards below
+  // the first rung (5 and 6 mines) hold at the floor, which is deliberate: the
+  // bare arithmetic of "10,000x per mine above 7" would give those two boards
+  // 1x, i.e. a full clear that returns only the stake, which is not a game.
+  //
+  // The ladder rises to 120,000x at 18 mines. Past 18 the cap stops mattering
+  // because the natural curve falls below it (19 mines peaks at ~100,567x), so
+  // the highest payout a player can actually collect on any board is 120,000x,
+  // reached at 18 mines. Above 24 the ladder keeps climbing but is unreachable.
   //
   // Paired with `maxStakeRf`, the developer's worst-case backing for a run in
-  // flight is `maxStakeRf x maxHaulMultipleBps` = 7,331 RF x 10,000 = 73,310,000
-  // RF, and that figure is independent of how much RF any player holds. The
-  // house edge is unaffected by this choice: measured across every mine count
-  // and cap from 250x to 1,000,000x it stays at 9-13%, because the per-round
-  // edge does the work and the full clear is far too rare to move the mean.
-  maxHaulMultipleBps: 10_000 * 10000,
+  // flight is `maxStakeRf x 120,000` = 7,331 RF x 120,000 = 879,720,000 RF, and
+  // that figure is independent of how much RF any player holds. It is NOT the
+  // cap product: a contract enforcing only "haul <= stake x cap" would need
+  // 7,331 x 180,000 = 1,319,580,000 RF, because the ladder keeps climbing past
+  // the highest board that can actually reach its cap. The tighter
+  // 879,720,000 RF figure holds because the curve, not just the cap, bounds the
+  // payout.
+  //
+  // The house edge is unaffected by this choice: measured across every mine
+  // count and cap from 250x to 1,000,000x it stays at 9-13%, because the
+  // per-round edge does the work and the full clear is far too rare to move the
+  // mean.
+  haulCapBaseMultiple: 10_000,
+  // The first rung of the ladder: 7 mines pays at the base multiple, and each
+  // mine above that adds one base multiple.
+  haulCapFirstRungMines: 7,
 
   // Rare find presence odds (per board). Green mines, ores, shields and boosts
   // are lucky finds — not guaranteed and never purchasable.
@@ -201,22 +225,55 @@ export function getStartingMultiplier(mineCount: number): number {
 }
 
 /**
+ * The seam yield limit for one board, in basis points. Harder boards earn a
+ * higher ceiling: 5-7 mines cap at 10,000x, then +10,000x per extra mine
+ * (8 -> 20,000x, 9 -> 30,000x, ... 18 -> 120,000x). This is the single source
+ * of truth for the cap; nothing should read the ladder arithmetic directly.
+ */
+export function getHaulCapBps(mineCount: number): number {
+  const clampedMines = Math.min(Math.max(mineCount, MINES_CONFIG.minMines), MINES_CONFIG.maxMines);
+  const rungs = Math.max(1, clampedMines - RULES.haulCapFirstRungMines + 1);
+  return RULES.haulCapBaseMultiple * rungs * 10000;
+}
+
+/** The seam yield limit for one board, as a plain multiple: 10000 means 10,000x. */
+export function getHaulCapMultiple(mineCount: number): number {
+  return getHaulCapBps(mineCount) / 10000;
+}
+
+/**
+ * The highest payout any selectable board can actually collect: the largest
+ * min(natural curve, that board's cap) across every mine count. This is the
+ * figure backing must cover, and it is what `formatMaxHaulAtMaxStake` reports.
+ * It is derived from the curve rather than from the cap alone, which is why it
+ * is lower than `maxStakeRf x cap` for the highest boards.
+ */
+export function getMaxReachableHaulMultiple(): number {
+  let maxPeakBps = 0;
+  for (let m = MINES_CONFIG.minMines; m <= MINES_CONFIG.maxMines; m++) {
+    maxPeakBps = Math.max(maxPeakBps, getPeakMultiplier(m));
+  }
+  return maxPeakBps / 10000;
+}
+
+/**
  * Cumulative multiplier (bps) after `step` safe digs: the product of every
- * per-round multiplier applied so far, clamped to the seam yield limit
- * (RULES.maxHaulMultipleBps). This is the net multiple of the stake the current
- * haul actually sits at, matching the engine's integer math.
+ * per-round multiplier applied so far, clamped to that board's seam yield limit
+ * (see `getHaulCapBps`). This is the net multiple of the stake the current haul
+ * actually sits at, matching the engine's integer math.
  *   step 0 -> 10000 (1.00x)
- *   step k -> round(cum_{k-1} * round_k / 10000), never above the yield cap
+ *   step k -> round(cum_{k-1} * round_k / 10000), never above the board's cap
  */
 export function calculateMinesMultiplier(mineCount: number, step: number): number {
   const clampedMines = Math.min(Math.max(mineCount, MINES_CONFIG.minMines), MINES_CONFIG.maxMines);
   const safeTiles = MINES_CONFIG.totalTiles - clampedMines;
   const clampedStep = Math.min(step, safeTiles);
+  const capBps = getHaulCapBps(clampedMines);
   let cumulativeBps = 10000;
   for (let round = 1; round <= clampedStep; round++) {
     const roundBps = calculateRoundMultiplier(clampedMines, round);
     cumulativeBps = Math.round((cumulativeBps * roundBps) / 10000);
-    if (cumulativeBps > RULES.maxHaulMultipleBps) return RULES.maxHaulMultipleBps;
+    if (cumulativeBps > capBps) return capBps;
   }
   return cumulativeBps;
 }
@@ -257,18 +314,53 @@ export function formatMultiplier(multiplierBps: number): string {
   return `${whole}.${hundredths.toString().padStart(2, "0")}`;
 }
 
-/**
- * The seam yield limit, as a plain multiple of the stake: 10,000 means a single
- * delve can pay at most 10,000x what you put in. Used for display and for the
- * "yield cap reached" warning in the HUD.
- */
-export function getMaxHaulMultiple(): number {
-  return RULES.maxHaulMultipleBps / 10000;
+/** Format a board's yield limit for display, e.g. "10,000x". */
+export function formatHaulCap(mineCount: number): string {
+  return `${Math.round(getHaulCapMultiple(mineCount)).toLocaleString("en-US")}x`;
 }
 
-/** Format the yield limit for display, e.g. "10,000x". */
+/**
+ * The highest yield limit on the ladder, for prose that does not name a board.
+ * Prefer `formatHaulCap(mineCount)` when a specific board is in view.
+ */
+export function getMaxHaulMultiple(): number {
+  return getHaulCapMultiple(MINES_CONFIG.maxMines);
+}
+
+/** Format the top of the yield ladder, e.g. "180,000x". */
 export function formatMaxHaulMultiple(): string {
-  return `${Math.round(getMaxHaulMultiple()).toLocaleString("en-US")}x`;
+  return formatHaulCap(MINES_CONFIG.maxMines);
+}
+
+/**
+ * Describe the ladder in one line, e.g. "10,000x on 7 mines, rising 10,000x per
+ * mine to 120,000x on 18". Used by the Help panel, where the point is that the
+ * ceiling is not one flat number.
+ */
+export function formatHaulCapLadder(): string {
+  const base = Math.round(getHaulCapMultiple(RULES.haulCapFirstRungMines)).toLocaleString("en-US");
+  const step = Math.round(RULES.haulCapBaseMultiple).toLocaleString("en-US");
+  const topCount = getPeakCapMines();
+  const top = Math.round(getHaulCapMultiple(topCount)).toLocaleString("en-US");
+  return `${base}x on ${RULES.haulCapFirstRungMines} mines, rising ${step}x per mine to ${top}x on ${topCount}`;
+}
+
+/**
+ * The hardest board whose cap actually binds, i.e. the highest board that can
+ * reach its ceiling. Above this the natural curve falls below the cap, so the
+ * ladder keeps climbing but no longer changes what a player can win.
+ */
+export function getPeakCapMines(): number {
+  let best = MINES_CONFIG.minMines;
+  let bestPeak = 0;
+  for (let m = MINES_CONFIG.minMines; m <= MINES_CONFIG.maxMines; m++) {
+    const peak = getPeakMultiplier(m);
+    if (peak > bestPeak && peak === getHaulCapBps(m)) {
+      bestPeak = peak;
+      best = m;
+    }
+  }
+  return best;
 }
 
 /** The per-run stake ceiling as whole RF, e.g. 7331. */
@@ -281,9 +373,14 @@ export function formatMaxStakeRf(): string {
   return `${getMaxStakeWhole().toLocaleString("en-US")} RF`;
 }
 
-/** Format the largest single-delve payout from the ceiling stake, e.g. "73,310,000 RF". */
+/**
+ * Format the largest single-delve payout from the ceiling stake, e.g.
+ * "879,720,000 RF". This uses the highest *reachable* multiple (120,000x at 18
+ * mines) rather than the top of the ladder, because a board above 18 mines
+ * cannot reach its cap.
+ */
 export function formatMaxHaulAtMaxStake(): string {
-  const rf = (RULES.maxStakeRf * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+  const rf = (RULES.maxStakeRf * BigInt(Math.round(getMaxReachableHaulMultiple() * 10000))) / 10000n;
   const whole = rf / RF_UNIT;
   return `${whole.toLocaleString("en-US")} RF`;
 }

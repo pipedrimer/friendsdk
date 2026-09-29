@@ -46,20 +46,31 @@ The per-round multipliers are fair odds per survival, discounted by a per-round
 house edge (`RULES.houseEdgeBps` = **900 bps**). Two rules keep the economy
 honest and are enforced in the engine, not just documented:
 
-- **Seam yield cap.** A delve can never pay more than **×10,000** of its stake
-  (`RULES.maxHaulMultipleBps`). The raw compounding curve on a 15-mine board runs
-  to ×1,272,799 and a 13-mine board to ×1,676,692, but no delve can ever bank
-  more than ×10,000 — so the advertised peak is both reachable-in-principle and
-  fundable.
+- **Seam yield cap, as a ladder.** A delve can never pay more than its own
+  board's cap of its stake (`getHaulCapBps(mineCount)`), and the cap rises with
+  difficulty so harder boards are not all pinned to the same ceiling:
+  **×10,000 on 5–7 mines, then +×10,000 per mine** — 8 mines ×20,000, 9 mines
+  ×30,000, up to 18 mines ×120,000. The raw compounding curve still outruns it
+  (a 15-mine board runs to ×1,272,799, a 13-mine board to ×1,676,692), so the
+  advertised peak stays both reachable-in-principle and fundable. Above 18 mines
+  the ladder keeps climbing but stops mattering, because the natural curve falls
+  below it (19 mines peaks at ×100,567) — so **×120,000 is the most any board can
+  actually pay**. The 5- and 6-mine boards hold at the ×10,000 floor on purpose:
+  the bare "×10,000 per mine above 7" arithmetic would give them ×1, i.e. a full
+  clear that returns only the stake.
 - **Per-run stake ceiling.** A delve can never risk more than **7,331 RF**
-  (`RULES.maxStakeRf`) — whatever the player holds. This is what makes a ×10,000
-  cap safe: the worst-case backing for a run in flight is
-  `7,331 × 10,000 = 73,310,000 RF`, a fixed number that does **not** grow with a
+  (`RULES.maxStakeRf`) — whatever the player holds. This is what makes the cap
+  ladder safe: the worst-case backing for a run in flight is
+  `7,331 × 120,000 = 879,720,000 RF`, a fixed number that does **not** grow with a
   rich player's wallet balance. The two limits are a pair — the cap alone would
-  compound, since a big payout becomes the next stake. The ceiling is fixed in
-  RF (it was picked as $10 at a $0.001364 reference price, but the dollar value
-  is allowed to drift); the preview opens with 10 RF, so the ceiling is never
-  reached in normal play. The HUD shows **YIELD CAP** once the haul can no longer
+  compound, since a big payout becomes the next stake. Note the backing figure is
+  the ceiling times the highest *reachable* rung (120,000x at 18 mines), not
+  ceiling times the top of the ladder (180,000x at 24 mines): no board above 18
+  can reach its cap, so a contract enforcing only `haul ≤ stake × cap` would
+  over-reserve. The ceiling is fixed in RF (it was picked as $10 at a $0.001364
+  reference price, but the dollar value is allowed to drift); the preview opens
+  with 10 RF, so the ceiling is never reached in normal play. The HUD shows
+  **YIELD CAP** with the current board's own figure once the haul can no longer
   grow, and the remaining safe tiles are then only worth digging for ore.
 - **Rare finds need room.** A Lucky Seam is never placed on a board with fewer
   than three safe tiles, because a green tile there would double a single

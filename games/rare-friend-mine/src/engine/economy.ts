@@ -1,4 +1,4 @@
-import { RF_DECIMALS, RF_UNIT, RULES } from "./rules.js";
+import { RF_DECIMALS, RF_UNIT, getHaulCapBps, RULES } from "./rules.js";
 
 export { RF_DECIMALS, RF_UNIT };
 
@@ -72,12 +72,13 @@ export function calculateGreenMineMultiplier(roundBps: number): number {
 }
 
 /**
- * Apply the seam yield limit to a haul. A delve can never pay more than
- * RULES.maxHaulMultipleBps of the stake, so the advertised peak stays bounded
- * no matter how many rounds survive.
+ * Apply the seam yield limit to a haul. A delve can never pay more than the
+ * board's cap (see `getHaulCapBps`) times the stake, so the advertised peak
+ * stays bounded no matter how many rounds survive. `mineCount` selects the rung
+ * of the ladder, so this must always be the board actually being played.
  */
-export function applyMaxHaul(stake: bigint, haul: bigint): bigint {
+export function applyMaxHaul(stake: bigint, haul: bigint, mineCount: number): bigint {
   if (stake <= 0n) return haul > 0n ? haul : 0n;
-  const ceiling = (stake * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+  const ceiling = (stake * BigInt(getHaulCapBps(mineCount))) / 10000n;
   return haul > ceiling ? ceiling : haul;
 }

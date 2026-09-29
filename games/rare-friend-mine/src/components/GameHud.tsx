@@ -1,7 +1,7 @@
 import React from "react";
 import type { MineRun } from "../types/game.js";
 import { formatRf, calculateStepHaul } from "../engine/economy.js";
-import { formatMultiplier, formatMaxHaulMultiple, getDangerTier, getStartingMultiplier, RULES } from "../engine/rules.js";
+import { formatMultiplier, formatHaulCap, getDangerTier, getHaulCapBps, getStartingMultiplier } from "../engine/rules.js";
 import {
   BoltIcon,
   BombIcon,
@@ -53,7 +53,7 @@ export function GameHud({
   const yieldCapped =
     inRun &&
     state.stakeRf > 0n &&
-    state.atRiskRf >= (state.stakeRf * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+    state.atRiskRf >= (state.stakeRf * BigInt(getHaulCapBps(state.mineCount))) / 10000n;
 
   return (
     <header className="game-hud" aria-label="Game Status Bar">
@@ -130,7 +130,7 @@ export function GameHud({
                 YIELD CAP
               </span>
               <span className="stat-value">
-                {formatMaxHaulMultiple()} reached
+                {formatHaulCap(state.mineCount)} reached
                 <small className="stat-sub">dig for ore, not RF</small>
               </span>
             </div>

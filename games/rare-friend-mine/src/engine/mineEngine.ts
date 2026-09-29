@@ -311,6 +311,7 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
       const newAtRisk = applyMaxHaul(
         state.stakeRf,
         currentHaul > 0n ? (currentHaul * BigInt(appliedRoundBps)) / 10000n : 0n,
+        state.mineCount,
       );
       const newCurrentMultiplierBps =
         state.stakeRf > 0n
@@ -514,7 +515,7 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
           const baseHaul = state.atRiskRf > 0n ? state.atRiskRf : state.stakeRf;
           const uncappedHaul =
             baseHaul > 0n ? (baseHaul * BigInt(greenBps)) / 10000n : 0n;
-          const doubledHaul = applyMaxHaul(state.stakeRf, uncappedHaul);
+          const doubledHaul = applyMaxHaul(state.stakeRf, uncappedHaul, state.mineCount);
           const greenCurrentBps =
             state.stakeRf > 0n
               ? Number((doubledHaul * 10000n) / state.stakeRf)

@@ -29,12 +29,33 @@ must implement:
    (`haul = haul * roundBps / 10000`), matching the simulation's BigInt math.
    `expired?` handles the case where a safe dig banks vs. a mine ends the run.
 
-2. **Yield cap.** `multiplierBps` is clamped to `10000 * 10000` on every update,
-   mirroring `applyMaxHaul` in `src/engine/economy.ts`. The cap is
-   stake-relative, so it scales with the stake and needs no per-tier table. This
-   also bounds the reserve requirement in (4): without it a 5-mine run's raw
-   curve exceeds ×8,050, a 10-mine run exceeds ×794,000, and a 13-mine run
-   exceeds ×1,600,000, which no vault can fund at a meaningful stake.
+2. **Yield cap, as a ladder.** `multiplierBps` is clamped on every update to a
+   *board-specific* ceiling, mirroring `applyMaxHaul` in
+   `src/engine/economy.ts` and `getHaulCapBps(mineCount)` in
+   `src/engine/rules.ts`:
+
+   ```
+   capBps(mineCount) = 10000 * 10000 * max(1, mineCount - 6)
+   ```
+
+   So 5, 6 and 7 mines cap at ×10,000, and each mine past the first rung adds
+   ×10,000: 8 -> ×20,000, 9 -> ×30,000, ... 18 -> ×120,000. The contract needs
+   the `mineCount` already known for the run, which it is — the cap is a pure
+   function of the run's immutable mine count, so it needs no storage.
+
+   The `max(1, ...)` floor is deliberate and must be preserved: the bare
+   expression `10000 * (mineCount - 6)` gives 5 and 6 mines a cap of ×1, i.e. a
+   full clear that returns only the stake, which is not a playable board. Do not
+   "simplify" the floor away.
+
+   The cap is stake-relative, so it scales with the stake and needs no per-tier
+   payout table. It also bounds the reserve requirement in (4): without it a
+   5-mine run's raw curve exceeds ×8,050, a 10-mine run exceeds ×794,000, and a
+   13-mine run exceeds ×1,600,000, which no vault can fund at a meaningful stake.
+
+   The ladder is what keeps harder boards from all pinning to one ceiling. Under
+   the previous flat ×10,000 cap, boards 7-20 all advertised an identical
+   ×10,000 peak despite underlying curves ranging from ×87,984 to ×1,676,692.
 
 2b. **Stake ceiling.** A run's stake is clamped to `maxStakeRf` (**7,331 RF**)
    when the run is opened, mirroring `RULES.maxStakeRf` and the `SET_STAKE` /
@@ -57,16 +78,33 @@ must implement:
 
 4. **Backing / reserves.** Each purchased run must be funded such that free
    stake covers the run's **capped peak** prize
-   (`stake × min(full-clear multiplier, 10000)` — a flat `stake × 10000` for every
-   count except Inferno, where the single safe tile peaks at `stake × 22.75`).
-   This is the existing "reserve the maximum prize" rule from
-   `contracts/README.md:152` applied per run, not per static outcome.
+   (`stake × min(full-clear multiplier, capBps(mineCount))` — i.e. the run's own
+   rung of the ladder in (2), except where the single safe tile peaks lower, as
+   at 24 mines where the peak is `stake × 22.75`). This is the existing
+   "reserve the maximum prize" rule from `contracts/README.md:152` applied per
+   run, not per static outcome.
 
    Because the stake ceiling in (2b) bounds the stake at 7,331 RF regardless of
    the player wallet balance, the worst-case backing for a run in flight is a
-   **fixed 73,310,000 RF** (`7,331 × 10,000`), independent of how much RF any
+   **fixed 879,720,000 RF** (`7,331 × 120,000`), independent of how much RF any
    player holds. That bound is the reason the cap is paired with a stake ceiling
    rather than raised alone.
+
+   **The 120,000 factor is the highest *reachable* rung, not the top of the
+   ladder, and the distinction matters for how the contract is written.** The
+   ladder reaches ×180,000 at 24 mines, but no board above 18 mines can reach
+   its cap, because the natural curve has already fallen below it (19 mines
+   peaks at ×100,567 against a ×130,000 rung). So:
+   - Enforcing only `haul <= stake * cap` would require the contract to treat
+     **1,319,580,000 RF** (`7,331 × 180,000`) as the reserve, a 1.5x over-reserve.
+   - The tighter **879,720,000 RF** holds because the curve bounds the payout,
+     not just the cap.
+
+   A contract that wants the simpler invariant should still cap the stake and the
+   haul; it just needs the reserve sized off the reachable peak, or the cap
+   itself should stop rising above 18 mines. The engine exposes both figures as
+   `getMaxReachableHaulMultiple()` and `getHaulCapBps(maxMines)` so they cannot
+   drift apart silently.
 
 5. **Deterministic RNG.** Random-safe dig vs. mine outcomes must come from a
    verifiable source (Dice-style on-chain randomness, or an approved oracle),
@@ -196,9 +234,12 @@ reference until then, and the preview ledger remains fully simulated.
     (constructor argument or settable value), not a literal, so the team can move
     it without a redeploy. It should be lowered if RF falls far enough that
     7,331 RF becomes an unreasonable single bet, and raised if RF recovers.
-  - `maxStakeRf` and `maxHaulMultipleBps` must move together, because backing is
-    their product. The engine's test suite pins that product at 73,310,000 RF so
-    the two cannot drift apart silently.
+  - `maxStakeRf` and the cap ladder must move together, because backing is their
+    product. The engine's test suite pins `maxStakeRf × 120,000x` at
+    879,720,000 RF and asserts that 18 mines is the last board whose cap binds,
+    so the two cannot drift apart silently. Raising the ladder's slope without
+    re-reading the backing figure is the main way this economy can become
+    unbackable again.
 
 ## Open questions for the reviewer
 
@@ -206,8 +247,15 @@ reference until then, and the preview ledger remains fully simulated.
   live in an ERC-1155/consumable that survives redemptions?
 - Which randomness source (Dice integration vs. approved oracle) is authorized
   for stepwise safe/mine resolution?
-- Confirm the backing figure. At the preview values the developer must be able to
-  float **73,310,000 RF** (~$100,000 at the $0.001364 reference price) for a
-  single run in flight. The reserve requirement is bounded and predictable in RF,
-  but its dollar cost still moves with the price, and the team should confirm
-  they can fund it.
+- **Confirm the backing figure, which is now the single largest number in the
+  design.** A run in flight must be funded to **879,720,000 RF** (~$1.2M at the
+  $0.001364 reference price) — up from 73,310,000 RF before the ladder. The
+  requirement is bounded and predictable in RF and does not grow with any
+  wallet, but it is a 12x jump, and the dollar cost still moves with the price.
+  If that is more than the team wants to float, the lever is the ladder slope
+  (`RULES.haulCapBaseMultiple`), not the stake ceiling: halving the slope to
+  +×5,000 per mine caps the reachable peak at ×60,000 and cuts backing to
+  439,860,000 RF. Flattening the ladder to the old single ×10,000 cap returns
+  backing to 73,310,000 RF, at the cost of the peak column repeating one number
+  across boards 7-20. The preview opens with 10 RF, so none of this is reachable
+  in normal play — it is a funding question, not a gameplay one.

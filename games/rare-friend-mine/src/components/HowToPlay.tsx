@@ -13,8 +13,10 @@ import {
   MULTIPLIER_TABLE,
   POPULAR_MINE_PRESETS,
   calculateMinesMultiplier,
+  formatHaulCapLadder,
+  formatHaulCap,
+  getHaulCapMultiple,
   formatMaxHaulAtMaxStake,
-  formatMaxHaulMultiple,
   formatMaxStakeRf,
   formatMultiplier,
   getDangerTier,
@@ -43,7 +45,7 @@ function multiplierPeak(mineCount: number): string {
  */
 function peakRawNote(mineCount: number): string | null {
   const raw = Math.round(getUncappedPeakMultiplier(mineCount) / 10000);
-  const cap = RULES.maxHaulMultipleBps / 10000;
+  const cap = getHaulCapMultiple(mineCount);
   if (raw <= cap) return null;
   return `raw ${raw.toLocaleString("en-US")}x`;
 }
@@ -162,11 +164,12 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
             </p>
             <p className="htp-p">
               Two limits bound every delve, and they work as a pair. The seam has a{" "}
-              <strong>yield cap of {formatMaxHaulMultiple()}</strong> — a delve never pays
-              more than that no matter how deep you get, so the huge theoretical peaks on
-              easy boards are never actually collectable. Once the HUD shows{" "}
-              <strong>YIELD CAP</strong>, further digs only chase ore — bank it. A delve
-              also never risks more than{" "}
+              <strong>per-board yield cap</strong> that is a ladder, not one flat number:{" "}
+              {formatHaulCapLadder()}. So a harder board has more room to run before it
+              saturates. A delve never pays more than its own board's cap however deep
+              you get, which is why the huge theoretical peaks on easy boards are never
+              actually collectable. Once the HUD shows <strong>YIELD CAP</strong>, further
+              digs only chase ore — bank it. A delve also never risks more than{" "}
               <strong>{formatMaxStakeRf()} per round</strong>, whatever your balance, so
               the biggest payout a single round can ever pay is{" "}
               <strong>{formatMaxHaulAtMaxStake()}</strong>.
@@ -178,6 +181,7 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
                   <th>Seam</th>
                   <th>Start</th>
                   <th>Next rounds</th>
+                  <th>Yield cap</th>
                   <th>Peak (capped)</th>
                 </tr>
               </thead>
@@ -188,6 +192,7 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
                     <td>{getDangerTier(m).tagline}</td>
                     <td>{formatMultiplier(MULTIPLIER_TABLE[m][0])}x</td>
                     <td>{nextRounds(m)}</td>
+                    <td>{formatHaulCap(m)}</td>
                     <td>
                       <span className="htp-peak-capped">{multiplierPeak(m)}</span>
                       {peakRawNote(m) && (

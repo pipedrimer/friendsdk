@@ -5,12 +5,18 @@ import { createInitialState, canStartRun, isOutOfRf, mineReducer } from "../src/
 import {
   calculateMinesMultiplier,
   calculateRoundMultiplier,
+  formatHaulCap,
+  formatHaulCapLadder,
   formatMaxHaulAtMaxStake,
   formatMaxHaulMultiple,
   formatMaxStakeRf,
   formatMultiplier,
   getDangerTier,
+  getHaulCapBps,
+  getHaulCapMultiple,
+  getMaxReachableHaulMultiple,
   getMaxStakeWhole,
+  getPeakCapMines,
   getPeakMultiplier,
   getStartingMultiplier,
   getUncappedPeakMultiplier,
@@ -365,8 +371,8 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
       assert.equal(fullClear, getPeakMultiplier(mines), `${mines} mines full clear must equal design peak`);
       assert.ok(fullClear >= getStartingMultiplier(mines), `${mines} mines peak cannot be below its start`);
       assert.ok(
-        fullClear <= RULES.maxHaulMultipleBps,
-        `${mines} mines peak (${fullClear}) must not exceed the yield cap (${RULES.maxHaulMultipleBps})`,
+        fullClear <= getHaulCapBps(mines),
+        `${mines} mines peak (${fullClear}) must not exceed the yield cap (${getHaulCapBps(mines)})`,
       );
     }
 
@@ -379,41 +385,42 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
     // natural peak actually clears the cap, so the claim stays true if the cap
     // is retuned in either direction.
     const cappedBoards = [5, 7, 10, 13, 16, 20].filter(
-      (c) => getUncappedPeakMultiplier(c) > RULES.maxHaulMultipleBps,
+      (c) => getUncappedPeakMultiplier(c) > getHaulCapBps(c),
     );
     assert.ok(
       cappedBoards.length >= 4,
-      `at least four sampled boards must exceed the ${RULES.maxHaulMultipleBps} bps cap`,
+      `at least four sampled boards must exceed the ${getHaulCapBps(7)} bps cap`,
     );
     for (const count of cappedBoards) {
       assert.ok(
-        getUncappedPeakMultiplier(count) > RULES.maxHaulMultipleBps,
+        getUncappedPeakMultiplier(count) > getHaulCapBps(count),
         `${count} mines natural peak clears the cap, so the cap must bind there`,
       );
     }
     // The mid boards are where the cap does the most work: the natural curve is
-    // orders of magnitude past it there, not merely a little past.
+    // far past the ladder there, not merely a little past. (The ratio is much
+    // tighter than under a flat 10,000x cap, which is the point of the ladder.)
     for (const count of [10, 13, 16]) {
       assert.ok(
-        getUncappedPeakMultiplier(count) > 20 * RULES.maxHaulMultipleBps,
-        `${count} mines uncapped compounding is at least 20x above the yield cap`,
+        getUncappedPeakMultiplier(count) > 5 * getHaulCapBps(count),
+        `${count} mines uncapped compounding is at least 5x above its yield cap`,
       );
     }
     // The shortest boards never reach the cap at all, so they must be exempt
     // from the "cap binds" expectation elsewhere in this file.
     assert.ok(
-      getUncappedPeakMultiplier(24) < RULES.maxHaulMultipleBps,
+      getUncappedPeakMultiplier(24) < getHaulCapBps(24),
       "24 mines peaks at a single start and never approaches the cap",
     );
     // getPeakMultiplier reports the advertised peak, which is the cap wherever
     // the cap binds and the natural curve where it does not.
     for (const count of [5, 7, 10, 13, 16, 20]) {
       const natural = getUncappedPeakMultiplier(count);
-      const expected = Math.min(natural, RULES.maxHaulMultipleBps);
+      const expected = Math.min(natural, getHaulCapBps(count));
       assert.equal(
         getPeakMultiplier(count),
         expected,
-        `${count} mines advertised peak is min(natural ${natural}, cap ${RULES.maxHaulMultipleBps})`,
+        `${count} mines advertised peak is min(natural ${natural}, cap ${getHaulCapBps(count)})`,
       );
     }
   });
@@ -427,16 +434,16 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
         const current = calculateMinesMultiplier(mines, step);
         if (saturated) {
           assert.equal(current, prev, `${mines} mines step ${step} holds at the yield cap`);
-          assert.equal(current, RULES.maxHaulMultipleBps, `${mines} mines holds at the cap, not below it`);
+          assert.equal(current, getHaulCapBps(mines), `${mines} mines holds at the cap, not below it`);
         } else {
           assert.ok(
             current - prev >= 100,
             `${mines} mines step ${step} gains at least 100bps (got ${current - prev})`,
           );
-          if (current === RULES.maxHaulMultipleBps) saturated = true;
+          if (current === getHaulCapBps(mines)) saturated = true;
         }
         assert.ok(current <= getPeakMultiplier(mines), `${mines} mines step ${step} stays under the peak`);
-        assert.ok(current <= RULES.maxHaulMultipleBps, `${mines} mines step ${step} respects the yield cap`);
+        assert.ok(current <= getHaulCapBps(mines), `${mines} mines step ${step} respects the yield cap`);
         prev = current;
       }
     }
@@ -564,8 +571,8 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
         const roundBps = calculateRoundMultiplier(count, step);
         assert.ok(roundBps >= 10001, `${count} mines step ${step} round multiplier cannot shrink below 1.00x`);
         cumulative = Math.round((cumulative * roundBps) / 10000);
-        if (cumulative > RULES.maxHaulMultipleBps) {
-          cumulative = RULES.maxHaulMultipleBps;
+        if (cumulative > getHaulCapBps(count)) {
+          cumulative = getHaulCapBps(count);
           clipped = true;
         }
       }
@@ -577,7 +584,7 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
         `${count} mines capping can only reduce the raw curve`,
       );
       assert.ok(
-        !clipped || cumulative === RULES.maxHaulMultipleBps,
+        !clipped || cumulative === getHaulCapBps(count),
         `${count} mines only ever clips at the yield cap`,
       );
     }
@@ -654,7 +661,7 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
       const roundBps = [];
       for (let step = 1; step <= safe; step++) roundBps.push(calculateRoundMultiplier(count, step));
       // A full clear banks the compounding curve clamped at the yield limit.
-      const capRf = (1n * RF_UNIT * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+      const capRf = (1n * RF_UNIT * BigInt(getHaulCapBps(count))) / 10000n;
       const rawHaul = compoundRf(1n * RF_UNIT, roundBps);
       assert.equal(
         state.bankedRf,
@@ -896,8 +903,8 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
 
   it("no delve can ever pay more than the yield cap, for any board", () => {
     const stake = 1n * RF_UNIT;
-    const capRf = (stake * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
     for (let mines = 5; mines <= 24; mines++) {
+      const capRf = (stake * BigInt(getHaulCapBps(mines))) / 10000n;
       const { state, hauls } = digAllSafe(mines);
       for (const haul of hauls) {
         assert.ok(
@@ -914,11 +921,10 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
   });
 
   it("a full clear banks its realized haul, capped, and the cap binds on most boards", () => {
-    const capBps = BigInt(RULES.maxHaulMultipleBps);
     let boardsWhereCapBinds = 0;
     for (let mines = 5; mines <= 24; mines++) {
       const stake = 1n * RF_UNIT;
-      const capRf = (stake * capBps) / 10000n;
+      const capRf = (stake * BigInt(getHaulCapBps(mines))) / 10000n;
       const { state, hauls } = digAllSafe(mines);
       // A full clear banks whatever the board actually produced, including the
       // Lucky Seam, ore and boost finds that the design curve does not model.
@@ -945,24 +951,36 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
   });
 
   it("the yield cap scales with the stake, not with a fixed RF amount", () => {
-    const capBps = BigInt(RULES.maxHaulMultipleBps);
+    // 5 mines is the first board under test, so the first rung of the ladder.
+    const capBps = BigInt(getHaulCapBps(5));
     const rf = (n) => BigInt(n) * RF_UNIT;
     // Use a multiple far above the cap so the clamp, not the board, decides.
     const huge = 1_000_000n * 10000n * RF_UNIT;
     for (const stakeWhole of [1, 2, 7, 7331]) {
       assert.equal(
-        applyMaxHaul(rf(stakeWhole), huge),
+        applyMaxHaul(rf(stakeWhole), huge, 5),
         (rf(stakeWhole) * capBps) / 10000n,
         `a ${stakeWhole} RF stake caps at ${stakeWhole} x the cap, not at a fixed RF amount`,
       );
     }
+    // The cap must follow the board, not a single global number.
+    assert.ok(getHaulCapBps(9) > getHaulCapBps(5), "a harder board has a higher rung");
+    assert.notEqual(
+      applyMaxHaul(rf(10), huge, 5),
+      applyMaxHaul(rf(10), huge, 9),
+      "the same haul caps differently on 5 mines and 9 mines",
+    );
     // The documented worst-case backing, spelled out so the number cannot drift
-    // silently: max stake x cap, independent of any player's wallet balance.
-    // 7,331 RF x 10,000x = 73,310,000 RF (~$100,000 at the reference price).
+    // silently: max stake x the highest REACHABLE cap rung, independent of any
+    // player's wallet balance. 7,331 RF x 120,000x = 879,720,000 RF.
+    // Note this is lower than the cap product: the ladder keeps climbing to
+    // 180,000x on 24 mines, but no board above 18 mines can reach its cap.
+    assert.equal(getPeakCapMines(), 18, "18 mines is the hardest board whose cap binds");
+    assert.equal(getMaxReachableHaulMultiple(), 120_000, "the highest reachable multiple is 120,000x");
     assert.equal(
-      (RULES.maxStakeRf * capBps) / 10000n,
-      73_310_000n * RF_UNIT,
-      "max stake x 10,000x cap must equal 73,310,000 RF of backing",
+      (RULES.maxStakeRf * BigInt(getHaulCapBps(18))) / 10000n,
+      879_720_000n * RF_UNIT,
+      "max stake x 120,000x must equal 879,720,000 RF of backing",
     );
   });
 
@@ -1029,13 +1047,13 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
       assert.equal(formatMaxStakeRf(), "7,331 RF", "the ceiling is shown with a thousands separator");
       assert.equal(
         formatMaxHaulAtMaxStake(),
-        "73,310,000 RF",
+        "879,720,000 RF",
         "the advertised worst-case single-delve payout is derived, not hardcoded",
       );
       assert.equal(
         formatMaxHaulAtMaxStake(),
-        `${(RULES.maxStakeRf * BigInt(RULES.maxHaulMultipleBps) / 10000n / RF_UNIT).toLocaleString("en-US")} RF`,
-        "the display value must equal ceiling x cap",
+        `${(RULES.maxStakeRf * BigInt(getHaulCapBps(18)) / 10000n / RF_UNIT).toLocaleString("en-US")} RF`,
+        "the display value must equal ceiling x the highest reachable cap rung",
       );
     });
   });
@@ -1044,8 +1062,8 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
     // getPeakMultiplier drives the in-game Help table, so it must be the payable
     // value, never the raw uncapped curve, which runs to x1,272,799 on a 15-mine
     // board that the engine refuses to pay.
-    const cap = RULES.maxHaulMultipleBps;
     for (let mines = 5; mines <= 24; mines++) {
+      const cap = getHaulCapBps(mines);
       const advertised = getPeakMultiplier(mines);
       assert.ok(advertised > 0, `${mines} mines must advertise a positive peak`);
       assert.ok(
@@ -1061,8 +1079,8 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
   });
 
   it("calculateMinesMultiplier is already capped, so the table cannot leak the raw curve", () => {
-    const cap = RULES.maxHaulMultipleBps;
     for (let mines = 5; mines <= 24; mines++) {
+      const cap = getHaulCapBps(mines);
       const payable = calculateMinesMultiplier(mines, 25 - mines);
       assert.ok(
         payable <= cap,
@@ -1070,11 +1088,50 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
       );
     }
     // Prove the clamp is real: these boards compound far past it uncapped.
-    assert.ok(getUncappedPeakMultiplier(15) > 100 * cap, "15 mines raw curve is 100x the cap");
+    assert.ok(getUncappedPeakMultiplier(15) > 10 * getHaulCapBps(15), "15 mines raw curve is well past its cap");
+  });
+
+  it("the yield cap is a ladder, not one flat number", () => {
+    // The floor: 5, 6 and 7 mines all sit on the first rung. This is the
+    // deliberate exception that keeps the two easiest boards playable -- the
+    // bare "10,000x per mine above 7" arithmetic would give them 1x.
+    for (const mines of [5, 6, 7]) {
+      assert.equal(getHaulCapMultiple(mines), 10_000, `${mines} mines is on the first rung`);
+    }
+    // The ladder itself: +10,000x for every mine past the first rung.
+    for (let mines = 8; mines <= 24; mines++) {
+      assert.equal(
+        getHaulCapMultiple(mines),
+        10_000 * (mines - 6),
+        `${mines} mines is rung ${mines - 6} of the ladder`,
+      );
+    }
+    // Monotonic, and strictly increasing from 7 up.
+    for (let mines = 6; mines < 24; mines++) {
+      assert.ok(
+        getHaulCapBps(mines + 1) >= getHaulCapBps(mines),
+        `${mines + 1} mines must not cap below ${mines} mines`,
+      );
+    }
+    // Every board's advertised peak respects its own rung, never a neighbour's.
+    for (let mines = 5; mines <= 24; mines++) {
+      assert.ok(
+        getPeakMultiplier(mines) <= getHaulCapBps(mines),
+        `${mines} mines peak stays under its own cap`,
+      );
+    }
+    // 18 mines is the last board where the cap binds; above it the natural
+    // curve falls below the ladder, so the rung stops changing what you can win.
+    assert.equal(getPeakCapMines(), 18, "18 mines is the hardest capped board");
+    assert.equal(getMaxReachableHaulMultiple(), 120_000, "nothing can pay more than 120,000x");
+    assert.equal(formatHaulCapLadder(), "10,000x on 7 mines, rising 10,000x per mine to 120,000x on 18");
   });
 
   it("formats the cap and the ceiling with thousands separators", () => {
-    assert.equal(formatMaxHaulMultiple(), "10,000x", "the cap reads as 10,000x, not 10000x");
+    assert.equal(formatHaulCap(7), "10,000x", "the cap reads as 10,000x, not 10000x");
+    assert.equal(formatHaulCap(8), "20,000x", "one more mine buys another 10,000x");
+    assert.equal(formatHaulCap(9), "30,000x", "and another again at 9 mines");
+    assert.equal(formatMaxHaulMultiple(), "180,000x", "the ladder tops out at 180,000x on 24 mines");
     assert.equal(formatMaxStakeRf(), "7,331 RF");
   });
 
@@ -1089,7 +1146,10 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
     };
     assert.equal(peakLabel(24), "22.75x", "the 24-mine single-safe-tile peak keeps its decimals");
     assert.equal(peakLabel(5), "8,050x", "the 5-mine peak is under the cap and shown in full");
-    assert.equal(peakLabel(10), "10,000x", "a capped board shows exactly the cap");
+    assert.equal(peakLabel(10), "40,000x", "a capped board shows exactly its own rung of the cap");
+    assert.equal(peakLabel(7), "10,000x", "7 mines is the first rung");
+    assert.equal(peakLabel(8), "20,000x", "8 mines is the second rung");
+    assert.equal(peakLabel(18), "120,000x", "18 mines is the top reachable rung");
     // Nothing may render below 1x: a delve always at least returns the stake.
     for (let mines = 5; mines <= 24; mines++) {
       const shown = Number(peakLabel(mines).replace(/[x,]/g, ""));
@@ -1127,7 +1187,7 @@ describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
     let state = createInitialState(1001n);
     state = mineReducer(state, { type: "SET_MINE_COUNT", count: 5 });
     state = mineReducer(state, { type: "START_RUN", seed: 11 });
-    const capRf = (state.stakeRf * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+    const capRf = (state.stakeRf * BigInt(getHaulCapBps(state.mineCount))) / 10000n;
     // Seed a haul already at the cap, then dig a green tile.
     state.atRiskRf = capRf;
     state.board[0] = { id: 0, kind: "mine", mineType: "green", revealed: false };

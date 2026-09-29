@@ -50,18 +50,34 @@ amount, never more** — do you cash out, or push deeper?
   replaces** (including any active Boost), so the round still counts. It is
   never placed on a board with fewer than three safe tiles.
 - **Two paired limits bound every delve**, and neither is safe alone:
-  - **Seam yield cap** — a delve can never pay more than **×10,000** of its
-    stake (`RULES.maxHaulMultipleBps`). The raw compounding curve runs to
-    ×1,272,799 on a 15-mine board, but no delve can ever bank past ×10,000. The
-    HUD shows **YIELD CAP** once the haul can no longer grow, and the remaining
-    safe tiles are only worth digging for ore.
+  - **Seam yield cap, as a ladder** — a delve can never pay more than its own
+    board's cap of its stake (`getHaulCapBps(mineCount)`). The cap rises with
+    difficulty so harder boards are not all pinned to one ceiling: **×10,000 on
+    5–7 mines, then +×10,000 per mine** (8 → ×20,000, 9 → ×30,000, … 18 →
+    ×120,000). The raw compounding curve still outruns it — ×1,272,799 on a
+    15-mine board, ×1,676,692 on 13 — so no delve can ever bank past its own rung.
+    Above 18 mines the ladder keeps climbing but stops binding, because the
+    natural curve falls below it (19 mines peaks at ×100,567); **×120,000 is the
+    most any board can actually pay.** The 5- and 6-mine boards hold at the
+    ×10,000 floor deliberately: the bare "×10,000 per mine above 7" arithmetic
+    would give them ×1, i.e. a full clear returning only the stake. The HUD shows
+    **YIELD CAP** with the current board's own figure once the haul can no longer
+    grow, and the remaining safe tiles are only worth digging for ore.
   - **Per-run stake ceiling** — a delve can never risk more than **7,331 RF**
     (`RULES.maxStakeRf`) *whatever the player holds*. This is a backing control,
     not a preference: a live player's balance is their real wallet balance and
     the game cannot bound it, so without this rule developer backing would be
     *(richest player's balance × cap)* — unbounded. With it, the worst case for a
-    run in flight is a fixed **7,331 × 10,000 = 73,310,000 RF**, independent of
+    run in flight is a fixed **7,331 × 120,000 = 879,720,000 RF**, independent of
     any wallet size.
+
+    That figure uses the highest *reachable* rung (120,000x at 18 mines), not the
+    top of the ladder (180,000x at 24 mines): no board above 18 mines can reach
+    its cap, because the natural curve has already fallen below it. A contract
+    enforcing only `haul ≤ stake × cap` would therefore over-reserve by 1.5x at
+    1,319,580,000 RF; the tighter figure holds because the curve, not just the
+    cap, bounds the payout. This is the single largest number in the economy and
+    the one the Rare Friends team most needs to weigh.
 
     The ceiling is **denominated in RF, not USD**. 7,331 RF was chosen because it
     was $10 at the $0.001364/RF reference price on 2026-09-28, but the number is
@@ -97,14 +113,15 @@ deployed.
 
 Per-round multipliers are fair survival odds per board discounted by a `900`
 basis point house margin each round. Two engine-enforced rules keep the
-economy fundable: a **×10,000 stake-relative yield cap** paired with a
-**7,331 RF per-run stake ceiling**, and no Lucky Seam on boards with fewer
-than three safe tiles.
+economy fundable: a **per-board stake-relative yield cap on a ladder** (×10,000
+on 5-7 mines, +×10,000 per mine to ×120,000 on 18) paired with a **7,331 RF
+per-run stake ceiling**, and no Lucky Seam on boards with fewer than three safe
+tiles.
 
 **Why the two limits are inseparable.** Raising the cap alone would have been
 unsafe, because a player reinvests their winnings: a ×10,000 payout becomes a
 ×10,000 *stake* on the next delve, and the economy compounds. Clamping the
-stake is what bounds that. Together they fix backing at 73,310,000 RF for a run
+stake is what bounds that. Together they fix backing at 879,720,000 RF for a run
 in flight; separately, a cap without a ceiling leaves the requirement
 proportional to the richest wallet on the network, which is unknown and
 unbounded.
@@ -119,20 +136,33 @@ real reducer across every selectable mine count (5–24) and sweeps eight legal
 bank policies including *never bank*, the greediest possible strategy, and
 asserts that the **best** policy found still loses money. Board generation and
 dig order do not depend on when the player banks, so one pass records the whole
-haul trajectory and every threshold is read off that same path. At 60,000
-paired runs the house wins on all 20 counts: 18 of 20 measure a **5–9% edge**,
-and the near-impossible Inferno boards (21 and 22 mines) read player-favourable
-within the noise band, so the enforced invariant is that **no count is
-reliably player-profitable** rather than any specific margin.
+haul trajectory and every threshold is read off that same path. At 400,000
+paired runs per count the house wins on all 20 counts: boards 5–18 measure a
+**7.6–8.7% edge** whose pessimistic 2-sigma end is still 7.2–8.5%, so that margin
+is real rather than an artefact. The 19- and 21-mine counts read
+player-favourable on the point estimate, but at 0.05 and 1.2 standard errors
+that is noise rather than a finding — and both sit above 18 mines, where the cap
+never binds and their behaviour is unchanged from the earlier flat-cap design.
+The enforced invariant is therefore that **no count is reliably
+player-profitable** rather than any specific margin.
 
-| Mines | Start mult | Peak (capped) | Raw compounding curve |
-| ----- | ---------- | ------------- | -------------------- |
-| 5     | ×1.14      | ×8,050        | — (under the cap)    |
-| 7     | ×1.26      | ×10,000       | ×87,984              |
-| 10    | ×1.52      | ×10,000       | ×794,008             |
-| 15    | ×2.28      | ×10,000       | ×1,272,799           |
-| 20    | ×4.55      | ×10,000       | ×33,155              |
-| 24    | ×22.75     | ×22.75        | — (one safe tile)    |
+| Mines | Start mult | Yield cap | Peak (capped) | Raw compounding curve |
+| ----- | ---------- | --------- | ------------- | -------------------- |
+| 5     | ×1.14      | ×10,000   | ×8,050        | — (under the cap)    |
+| 7     | ×1.26      | ×10,000   | ×10,000       | ×87,984              |
+| 8     | ×1.34      | ×20,000   | ×20,000       | ×217,538             |
+| 9     | ×1.42      | ×30,000   | ×30,000       | ×451,618             |
+| 10    | ×1.52      | ×40,000   | ×40,000       | ×794,008             |
+| 15    | ×2.28      | ×90,000   | ×90,000       | ×1,272,799           |
+| 18    | ×3.25      | ×120,000  | ×120,000      | ×248,399             |
+| 20    | ×4.55      | ×140,000  | ×33,155       | — (under the cap)    |
+| 24    | ×22.75     | ×180,000  | ×22.75        | — (one safe tile)    |
+
+The ladder is the reason the peak column no longer repeats the same number. A
+flat cap pinned boards 7–20 to an identical ×10,000 despite wildly different
+underlying curves; now each board's ceiling is proportional to its difficulty,
+and past 18 mines the ceiling stops binding at all because the curve has fallen
+below it. ×120,000 at 18 mines is therefore the highest payout in the game.
 
 The in-game Help table shows the capped peak and, where the cap truncates it,
 the raw curve in muted text — so the cap is visibly doing work rather than
@@ -158,8 +188,8 @@ from a funded account balance at all times.
 
 ## Checks and known issues
 
-- 54 deterministic engine unit tests (multipliers, wipes, shields, boosts, green seam, yield cap, stake ceiling, full-clear auto-bank, 0-RF soft-lock recovery, advertised-peak clamping, gear locker economy and trophies).
-- Monte Carlo economy simulation sweeping 8 legal bank policies (including *never bank*) against every selectable mine count, 5–24. Board and dig order are independent of when the player banks, so one pass scores every threshold off the same path. At 60,000 paired runs the house wins on all 20 counts; the gate fails only when the best policy beats the house by more than two standard errors, because the 20- and 23-mine jackpots are rare enough to swing the point estimate several points between runs.
+- 56 deterministic engine unit tests (multipliers, wipes, shields, boosts, green seam, per-board yield-cap ladder, stake ceiling, full-clear auto-bank, 0-RF soft-lock recovery, advertised-peak clamping, gear locker economy and trophies).
+- Monte Carlo economy simulation sweeping 8 legal bank policies (including *never bank*) against every selectable mine count, 5–24. Board and dig order are independent of when the player banks, so one pass scores every threshold off the same path. At 400,000 paired runs per count the house wins on all 20 counts; the gate fails only when the best policy beats the house by more than two standard errors. Boards 5-18 read a 7.6-8.7% house edge with a pessimistic 2-sigma end of 7.2-8.5%, so the margin is real, not an artefact. The 19- and 21-mine counts read player-favourable on the point estimate, but at 0.05 and 1.2 standard errors that is noise, not a finding -- and both boards sit above 18 mines, where the cap never binds and their behaviour is identical to the flat-cap design.
 - Automated browser smoke test: real sandboxed runtime, mock wallet, gear purchase/equip + NEW badge flow, banked haul verified (e.g., +1.21 RF run).
 - Responsive mobile smoke test: portrait 390×740 and short-landscape 667×375, frame layout + touch-target geometry checks.
 - `npx friendsdk check games/rare-friend-mine` validates the game directory; TypeScript typecheck clean.
