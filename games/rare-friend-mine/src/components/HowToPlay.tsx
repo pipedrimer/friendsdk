@@ -13,7 +13,9 @@ import {
   MULTIPLIER_TABLE,
   POPULAR_MINE_PRESETS,
   calculateMinesMultiplier,
+  formatMaxHaulMultiple,
   formatMultiplier,
+  getDangerTier,
 } from "../engine/rules.js";
 
 function multiplierPeak(mineCount: number): string {
@@ -135,19 +137,27 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
               the total multiple of your stake if you cleared every safe tile — the jackpot on
               a full clear is huge but the run almost always ends in a mine first.
             </p>
+            <p className="htp-p">
+              The seam has a <strong>yield cap of {formatMaxHaulMultiple()}</strong>. A delve
+              never pays more than that no matter how deep you get, so the huge theoretical
+              peaks on easy boards are never actually collectable. Once the HUD shows{" "}
+              <strong>YIELD CAP</strong>, further digs only chase ore — bank it.
+            </p>
             <table className="htp-table">
               <thead>
                 <tr>
                   <th>Mines / 25</th>
+                  <th>Seam</th>
                   <th>Start</th>
                   <th>Next rounds</th>
-                  <th>Peak (full clear)</th>
+                  <th>Peak (capped)</th>
                 </tr>
               </thead>
               <tbody>
                 {POPULAR_MINE_PRESETS.map((m) => (
                   <tr key={m}>
                     <td>{m}</td>
+                    <td>{getDangerTier(m).tagline}</td>
                     <td>{formatMultiplier(MULTIPLIER_TABLE[m][0])}x</td>
                     <td>{nextRounds(m)}</td>
                     <td>{multiplierPeak(m)}</td>
@@ -175,19 +185,27 @@ export function HowToPlay({ open, onClose }: HowToPlayProps) {
               <li>
                 <strong>Resource Ore</strong> — safe and <strong>rare</strong>. Copper, Moon,
                 Cosmic, Golden, or Shadow Ore. Ores are <strong>collectibles with no RF value</strong>{" "}
-                at the bank — but they also grow the haul like any round win.
+                at the bank — but they also grow the haul like any round win. Hover any ore for
+                where it is found and how rare it is.
               </li>
               <li>
                 <strong>Special Cache</strong> — safe and <strong>rare</strong>. Equips <strong>+1 Shield</strong> or <strong>+2 Boost</strong> charges as a find.
                 You cannot buy them.
               </li>
               <li>
-                <strong>Mines (Red, Yellow, Purple, Blue)</strong> — danger! Dig one without a
-                Shield and the run ends with your whole at-risk haul gone.
+                <strong>Mines</strong> — danger. Dig one without a Shield and the run ends with
+                your whole at-risk haul gone. Four kinds, and the name tells you how it ends:{" "}
+                <strong>Curse Vein</strong> (red, the common pressure burst),{" "}
+                <strong>Aquifer Rupture</strong> (yellow, flooded pocket),{" "}
+                <strong>Greed Trap</strong> (purple, cursed bait) and{" "}
+                <strong>Deep-Seam Chill</strong> (blue, freezes the run where it stands).
               </li>
               <li>
-                <strong>Green Mine</strong> — lucky and <strong>rare</strong>. It{" "}
-                <strong>doubles</strong> your current haul and keeps the run alive.
+                <strong>Lucky Seam</strong> (green) — lucky and <strong>rare</strong>. It{" "}
+                <strong>doubles the round it replaces</strong>, so the round still counts: a{" "}
+                <strong>2.4x</strong> green tile pays <strong>4.8x</strong>, never a flat 2x. It
+                keeps the run alive, and it is never placed on boards with fewer than three safe
+                tiles — there is no depth for luck to compound in.
               </li>
             </ul>
           </section>

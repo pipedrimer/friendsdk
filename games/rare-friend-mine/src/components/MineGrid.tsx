@@ -1,6 +1,7 @@
 import React, { useRef } from "react";
 import type { MineTile } from "../types/game.js";
 import { formatRf } from "../engine/economy.js";
+import { getMineDefinition, ORES, RULES } from "../engine/rules.js";
 import {
   BombIcon,
   BoltIcon,
@@ -101,6 +102,7 @@ export function MineGrid({
 
         let tileContent: React.ReactNode = null;
         let tileAriaLabel = `Tile row ${row + 1}, column ${col + 1}: unrevealed`;
+        let tileTitle = `Undug rock — row ${row + 1}, column ${col + 1}. Everything below is a guess.`;
         let tileClasses = "mine-tile";
 
         if (isRevealing) {
@@ -125,6 +127,7 @@ export function MineGrid({
           if (tile.kind === "rf") {
             tileClasses += " tile-rf";
             tileAriaLabel = `RF Deposit: +${formatRf(exactWin ?? 0n)} RF`;
+            tileTitle = `RF Deposit — banked ${formatRf(exactWin ?? 0n)} RF. Plain rock that happened to hold value.`;
             tileContent = (
               <div className="tile-inner rf-content">
                 <span className="tile-icon" aria-hidden="true"><CoinIcon /></span>
@@ -133,28 +136,37 @@ export function MineGrid({
               </div>
             );
           } else if (tile.kind === "resource") {
+            const oreDef = ORES[tile.resourceId];
             tileClasses += ` tile-ore ore-${tile.rarity}`;
             tileAriaLabel = `Resource: ${tile.name} (${tile.rarity}) +${formatRf(exactWin ?? 0n)} RF`;
+            tileTitle = `${tile.name} — ${tile.rarity} rarity. ${oreDef?.blurb ?? "A rare seam find."} Collected, never sold for RF.`;
             tileContent = (
               <div className="tile-inner ore-content">
                 <span className="tile-icon" aria-hidden="true"><ResourceIcon id={tile.resourceId} /></span>
                 <span className="tile-value">{tile.name}</span>
+                <span className="tile-rarity">{tile.rarity}</span>
                 {exactWin !== undefined && (
                   <span className="tile-sub">+{formatRf(exactWin)} RF</span>
                 )}
               </div>
             );
           } else if (tile.kind === "mine") {
+            const mineDef = getMineDefinition(tile.mineType);
             tileClasses += ` tile-mine mine-${tile.mineType}`;
-            tileAriaLabel = `Mine encountered: ${tile.mineType} mine`;
+            tileAriaLabel = `Mine encountered: ${mineDef.name}`;
             const MineIcon = MINE_ICONS[tile.mineType] ?? BombIcon;
-            const mineText = tile.mineType === "green" ? "2X LUCKY" : "LOSE ALL";
+            const isGreen = tile.mineType === "green";
+            const mineText = isGreen ? "2X LUCKY" : "LOSE ALL";
+
+            tileTitle = isGreen
+              ? `${mineDef.name} — ${mineDef.blurb}`
+              : `${mineDef.name} — ${mineDef.blurb} ${mineDef.failureLine}`;
 
             tileContent = (
               <div className="tile-inner mine-content">
                 <span className="tile-icon" aria-hidden="true"><MineIcon /></span>
                 <span className="tile-value">{mineText}</span>
-                {tile.mineType === "green" && exactWin !== undefined && (
+                {isGreen && exactWin !== undefined && (
                   <span className="tile-sub">+{formatRf(exactWin)} RF</span>
                 )}
               </div>
@@ -163,6 +175,9 @@ export function MineGrid({
             const isBoost = tile.specialType === "boost";
             tileClasses += " tile-special";
             tileAriaLabel = `Special: ${isBoost ? "+Boost charges" : "+1 Shield"} haul +${formatRf(exactWin ?? 0n)} RF`;
+            tileTitle = isBoost
+              ? `Boost cache — the next ${RULES.boostDigs} safe digs gain +${(RULES.boostBonusMultiplierBps / 10000).toFixed(2)}x each.`
+              : "Shield cache — absorbs one mine hit and keeps the at-risk haul.";
             tileContent = (
               <div className="tile-inner special-content">
                 <span className="tile-icon" aria-hidden="true">
@@ -192,6 +207,7 @@ export function MineGrid({
             disabled={disabled || shown || isRevealing}
             aria-label={tileAriaLabel}
             aria-pressed={shown}
+            title={tileTitle}
             onClick={() => onSelect(index)}
             onKeyDown={(e) => handleKeyDown(e, index)}
             style={crashMine ? { animationDelay: `${shockWaveDelay}ms` } : undefined}

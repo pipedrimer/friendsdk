@@ -1,5 +1,5 @@
 import type { MineTile, MineType, ResourceRarity } from "../types/game.js";
-import { MINES_CONFIG, ORES, RULES } from "./rules.js";
+import { MINES_CONFIG, ORES, RULES, canSpawnGreenMine } from "./rules.js";
 import { mulberry32, shuffleWithRng } from "./random.js";
 
 /**
@@ -63,7 +63,11 @@ export function rollRareFinds(rng: () => number, safeCount: number): {
     return { green: false, shield: false, boost: false, ores: [] };
   }
 
-  const green = rng() < RULES.greenFindChance;
+  // The lucky seam needs room to appear: with only one or two safe tiles there
+  // is no depth for luck to compound, so no green mine is placed. Without this,
+  // a 24-mine board pays a single 22x dig that green doubles more often than the
+  // house edge can absorb.
+  const green = canSpawnGreenMine(safeCount) && rng() < RULES.greenFindChance;
   const shield = rng() < RULES.shieldFindChance;
   const boost = rng() < RULES.boostFindChance;
 

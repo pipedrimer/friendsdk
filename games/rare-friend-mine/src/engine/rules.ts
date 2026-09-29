@@ -21,9 +21,15 @@ export const RULES = {
   greenMineMultiplier: 2n,
 
   // Per-round house edge applied to each fair-odds multiplier. The rarity of
-  // rare finds below is tuned so the average run returns less than the stake
-  // even when survivors bank the big compounding hauls.
-  houseEdgeBps: 250,
+  // rare finds below is tuned so that the BEST legal strategy (not just a
+  // cautious one) still loses RF to the house on every selectable mine count.
+  // Verified by tests/economy-sim.ts, which sweeps every bank policy.
+  houseEdgeBps: 900,
+
+  // The seam has a yield limit: no matter how deep you dig, a single delve can
+  // never pay more than this multiple of the stake. Bounds the jackpot so the
+  // advertised peak is both reachable-in-principle and fundable.
+  maxHaulMultipleBps: 250 * 10000,
 
   // Rare find presence odds (per board). Green mines, ores, shields and boosts
   // are lucky finds — not guaranteed and never purchasable.
@@ -68,13 +74,57 @@ export const POPULAR_MINE_PRESETS = [5, 7, 10, 15, 20, 24] as const;
  * The engine, simulation, and Help table all read this same table.
  */
 export const MULTIPLIER_TABLE: Record<number, number[]> = {
-  5: [12187,12315,12457,12617,12796,12999,13231,13499,13811,14181,14625,15166,15843,16713,17874,19500,21937,25999,34125,58500],
-  7: [13540,13764,14015,14299,14625,14999,15437,15953,16575,17332,18281,19500,21124,23400,26812,32499,43875,78000],
-  10: [16249,16713,17249,17874,18612,19500,20583,21937,23677,25999,29250,34125,42249,58500,107250],
-  15: [24375,25999,28031,30642,34125,39000,46312,58500,82875,156000],
-  20: [48750,58500,74749,107250,204750],
-  24: [243750],
+  5: [11375, 11494, 11627, 11776, 11943, 12133, 12349, 12599, 12891, 13235, 13650, 14155, 14787, 15599, 16683, 18200, 20475, 24266, 31850, 54600],
+  7: [12638, 12846, 13081, 13346, 13650, 13999, 14408, 14890, 15470, 16177, 17062, 18200, 19716, 21840, 25025, 30333, 40950, 72800],
+  10: [15166, 15599, 16099, 16683, 17371, 18200, 19211, 20475, 22099, 24266, 27300, 31850, 39433, 54600, 100100],
+  15: [22750, 24266, 26162, 28599, 31850, 36400, 43225, 54600, 77350, 145600],
+  20: [45500, 54600, 69766, 100100, 191100],
+  24: [227500],
 };
+
+export type MineDefinition = {
+  name: string;
+  /** What the mine does, shown on the tile tooltip and the Codex. */
+  blurb: string;
+  /** Shown when this mine ends a run. */
+  failureLine: string;
+};
+
+/**
+ * The five tile kinds. Green is lucky rather than lethal: it doubles the round
+ * it replaces. Everything else takes the whole at-risk haul.
+ */
+export const MINES: Record<string, MineDefinition> = {
+  red: {
+    name: "Curse Vein",
+    blurb: "The common hazard. A pressure-burst pocket that vents the whole at-risk haul.",
+    failureLine: "A pressure burst blew the seam open. The whole at-risk haul is gone.",
+  },
+  yellow: {
+    name: "Aquifer Rupture",
+    blurb: "Greedy yellow. A flooded pocket — the Deep-Seam crews say it is counting your stake as it fills.",
+    failureLine: "The aquifer let go. Floodwater took the at-risk haul down with it.",
+  },
+  purple: {
+    name: "Greed Trap",
+    blurb: "Cursed purple. It is bait. The Vault logs every Greed Trap loss under the same heading as a bad bet.",
+    failureLine: "A Greed Trap closed around the haul and did not let go.",
+  },
+  blue: {
+    name: "Deep-Seam Chill",
+    blurb: "A cold blue seam. It does not add anything — it simply ends the delve where it stands.",
+    failureLine: "Deep-Seam chill froze the run solid. The at-risk haul went with it.",
+  },
+  green: {
+    name: "Lucky Seam",
+    blurb: "Doubles the round it replaces, including any active Boost. The round still counts.",
+    failureLine: "",
+  },
+};
+
+export function getMineDefinition(mineType: string): MineDefinition {
+  return MINES[mineType] ?? MINES.red;
+}
 
 export type DangerTier = {
   id: DifficultyId;
@@ -120,13 +170,13 @@ export function getStartingMultiplier(mineCount: number): number {
 
 /**
  * Cumulative multiplier (bps) after `step` safe digs: the product of every
- * per-round multiplier applied so far (matching the engine's integer math).
- * This is the net multiple of the stake the current haul sits at.
+ * per-round multiplier applied so far, clamped to the seam yield limit
+ * (RULES.maxHaulMultipleBps). This is the net multiple of the stake the current
+ * haul actually sits at, matching the engine's integer math.
  *   step 0 -> 10000 (1.00x)
- *   step k -> round(cum_{k-1} * round_k / 10000)
+ *   step k -> round(cum_{k-1} * round_k / 10000), never above the yield cap
  */
 export function calculateMinesMultiplier(mineCount: number, step: number): number {
-  if (step <= 0) return 10000;
   const clampedMines = Math.min(Math.max(mineCount, MINES_CONFIG.minMines), MINES_CONFIG.maxMines);
   const safeTiles = MINES_CONFIG.totalTiles - clampedMines;
   const clampedStep = Math.min(step, safeTiles);
@@ -134,6 +184,27 @@ export function calculateMinesMultiplier(mineCount: number, step: number): numbe
   for (let round = 1; round <= clampedStep; round++) {
     const roundBps = calculateRoundMultiplier(clampedMines, round);
     cumulativeBps = Math.round((cumulativeBps * roundBps) / 10000);
+    if (cumulativeBps > RULES.maxHaulMultipleBps) return RULES.maxHaulMultipleBps;
+  }
+  return cumulativeBps;
+}
+
+/**
+ * The raw compounding curve with no yield cap applied. The capped value above is
+ * what a player can actually collect; this exists for economy analysis only and
+ * must never be shown as a payout.
+ */
+export function getUncappedPeakMultiplier(mineCount: number): number {
+  const clampedMines = Math.min(Math.max(mineCount, MINES_CONFIG.minMines), MINES_CONFIG.maxMines);
+  return calculateUncappedMinesMultiplier(clampedMines, MINES_CONFIG.totalTiles - clampedMines);
+}
+
+function calculateUncappedMinesMultiplier(mineCount: number, step: number): number {
+  const safeTiles = MINES_CONFIG.totalTiles - mineCount;
+  const clampedStep = Math.min(step, safeTiles);
+  let cumulativeBps = 10000;
+  for (let round = 1; round <= clampedStep; round++) {
+    cumulativeBps = Math.round((cumulativeBps * calculateRoundMultiplier(mineCount, round)) / 10000);
   }
   return cumulativeBps;
 }
@@ -154,10 +225,67 @@ export function formatMultiplier(multiplierBps: number): string {
   return `${whole}.${hundredths.toString().padStart(2, "0")}`;
 }
 
-export const ORES: Record<string, { name: string; rarity: ResourceRarity; icon: string }> = {
-  copper: { name: "Copper Ore", rarity: "common", icon: "copper" },
-  moon: { name: "Moon Ore", rarity: "uncommon", icon: "moon" },
-  cosmic: { name: "Cosmic Ore", rarity: "rare", icon: "cosmic" },
-  golden: { name: "Golden Ore", rarity: "epic", icon: "golden" },
-  shadow: { name: "Shadow Ore", rarity: "legendary", icon: "shadow" },
+/**
+ * The seam yield limit, as a plain multiple of the stake: 250 means a single
+ * delve can pay at most 250x what you put in. Used for display and for the
+ * "yield cap reached" warning in the HUD.
+ */
+export function getMaxHaulMultiple(): number {
+  return RULES.maxHaulMultipleBps / 10000;
+}
+
+/** Format the yield limit for display, e.g. "250x". */
+export function formatMaxHaulMultiple(): string {
+  return `${getMaxHaulMultiple()}x`;
+}
+
+/**
+ * The lucky seam needs room to appear. On a board with only one or two safe
+ * tiles there is no depth for luck to compound, so no green mine is placed.
+ * Without this, a 24-mine board pays a single 22x dig that is doubled by green
+ * more often than the edge can absorb.
+ */
+export function canSpawnGreenMine(safeTileCount: number): boolean {
+  return safeTileCount >= 3;
+}
+
+export type OreDefinition = {
+  name: string;
+  rarity: ResourceRarity;
+  icon: string;
+  /** Shown on the ore tooltip and in the Codex panel. */
+  blurb: string;
+};
+
+export const ORES: Record<string, OreDefinition> = {
+  copper: {
+    name: "Copper Ore",
+    rarity: "common",
+    icon: "copper",
+    blurb: "Dull red seams near the surface. Copper is worthless on its own — every Vault ledger starts here.",
+  },
+  moon: {
+    name: "Moon Ore",
+    rarity: "uncommon",
+    icon: "moon",
+    blurb: "Pale bands that hold the seam's silver light. The Deep-Seam crews use it to read water pressure.",
+  },
+  cosmic: {
+    name: "Cosmic Ore",
+    rarity: "rare",
+    icon: "cosmic",
+    blurb: "Dark stone shot through with slow-moving stars. Cartographers argue about where it is actually from.",
+  },
+  golden: {
+    name: "Golden Ore",
+    rarity: "epic",
+    icon: "golden",
+    blurb: "Warm, heavy and stubborn. The only ore the Vault will quote a real price for.",
+  },
+  shadow: {
+    name: "Shadow Ore",
+    rarity: "legendary",
+    icon: "shadow",
+    blurb: "It absorbs lamplight and stays cold. Nine Deep-Seam shafts went dark the night one of these came up.",
+  },
 };

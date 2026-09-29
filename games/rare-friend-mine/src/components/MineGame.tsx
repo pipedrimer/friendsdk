@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useReducer, useRef, useState } from "rea
 import type { GameComponentProps } from "@rarefriends/friendsdk/runtime";
 import type { GameSnapshot } from "@rarefriends/friendsdk/game";
 import type { CosmeticSlot } from "../types/game.js";
-import { createInitialState, mineReducer } from "../engine/mineEngine.js";
+import { canStartRun, createInitialState, isOutOfRf, mineReducer } from "../engine/mineEngine.js";
 import { MineSoundKit } from "../audio/soundKit.js";
 import { GameHud } from "./GameHud.js";
 import { FriendActor } from "./FriendActor.js";
@@ -13,6 +13,7 @@ import { ErrorPanel, LoadingScreen } from "./ErrorPanel.js";
 import { MineCountSelector } from "./MineCountSelector.js";
 import { StakeSelector } from "./StakeSelector.js";
 import { HowToPlay } from "./HowToPlay.js";
+import { RunLog } from "./RunLog.js";
 import { CosmeticsLocker } from "./CosmeticsLocker.js";
 import { formatRf } from "../engine/economy.js";
 import { formatMultiplier, getDangerTier, RULES } from "../engine/rules.js";
@@ -174,6 +175,12 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
     dispatch({ type: "START_RUN" });
   };
 
+  const handleResetSession = () => {
+    soundKitRef.current?.unlock();
+    soundKitRef.current?.play("click");
+    dispatch({ type: "RESET_SESSION" });
+  };
+
   const handleTileClick = (tileId: number) => {
     soundKitRef.current?.unlock();
 
@@ -257,6 +264,8 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
   const isInputDisabled =
     paused || state.phase === "revealing" || state.phase === "crashing";
   const currentTier = getDangerTier(state.mineCount);
+  const outOfRf = isOutOfRf(state);
+  const canDelve = canStartRun(state) && !paused;
 
   return (
     <main
@@ -335,13 +344,47 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
             className="start-delve-btn"
             onClick={handleStartRun}
             id="btn-start-mine"
-            aria-label={`Start delve with ${state.mineCount} mines, risking ${formatRf(state.stakeRf)} RF`}
+            disabled={!canDelve}
+            aria-disabled={!canDelve}
+            aria-label={
+              outOfRf
+                ? "Out of simulated RF. Reset your preview balance to keep delving."
+                : paused
+                  ? "Delve paused by the host"
+                  : `Start delve with ${state.mineCount} mines, risking ${formatRf(state.stakeRf)} RF`
+            }
           >
-            <span className="btn-label-primary">START DELVE</span>
+            <span className="btn-label-primary">
+              {outOfRf ? "OUT OF RF" : paused ? "PAUSED" : "START DELVE"}
+            </span>
             <span className="btn-label-sub">
-              {state.mineCount} mines · {currentTier.name} · -{formatRf(state.stakeRf)} RF · {formatMultiplier(state.nextMultiplierBps)}x start
+              {outOfRf
+                ? `Vault drained · reset to ${formatRf(RULES.startingRf)} RF`
+                : `${state.mineCount} mines · ${currentTier.name} · -${formatRf(state.stakeRf)} RF · ${formatMultiplier(state.nextMultiplierBps)}x start`}
             </span>
           </button>
+
+          {outOfRf && (
+            <div className="out-of-rf-panel" role="status">
+              <WarningIcon className="rf-icon" aria-hidden="true" />
+              <div className="out-of-rf-copy">
+                <strong>Your simulated vault is empty.</strong>
+                <span>
+                  Every delve costs {formatRf(RULES.minStakeRf)} RF and blasts only cost you the
+                  at-risk haul. Reset the preview balance to start a fresh session — your gear
+                  and trophies are kept.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="out-of-rf-reset-btn"
+                onClick={handleResetSession}
+                id="btn-reset-session"
+              >
+                RESET PREVIEW RF
+              </button>
+            </div>
+          )}
 
           <p className="sim-disclaimer-note">
             <WarningIcon className="rf-icon" aria-hidden="true" />{" "}
@@ -400,6 +443,8 @@ export function MineGame({ friendId, client, paused }: GameComponentProps) {
             disabled={isInputDisabled}
             onBank={handleBank}
           />
+
+          <RunLog history={state.history} />
         </section>
       )}
 

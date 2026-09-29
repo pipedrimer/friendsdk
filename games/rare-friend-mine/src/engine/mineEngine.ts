@@ -1,6 +1,7 @@
 import type { MineAction, MineRun, MineTile, SessionStats, TileResolution } from "../types/game.js";
 import { createBoard } from "./board.js";
 import {
+  applyMaxHaul,
   calculateGreenMineMultiplier,
   calculateStepHaul,
   formatRf,
@@ -10,6 +11,7 @@ import {
   calculateRoundMultiplier,
   formatMultiplier,
   getDangerTier,
+  getMineDefinition,
   MINES_CONFIG,
   RULES,
 } from "./rules.js";
@@ -22,6 +24,9 @@ import {
   newlyEarnedIds,
 } from "./cosmetics.js";
 
+
+const OUT_OF_RF_MESSAGE =
+  "Out of simulated RF. Reset your preview balance to keep delving.";
 
 export function createInitialState(friendId: bigint = 0n): MineRun {
   const defaultMines = MINES_CONFIG.defaultMines;
@@ -178,10 +183,20 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
     }
 
     case "START_RUN": {
+      // A run must be funded by at least the minimum stake. Without this the
+      // guard below is `0n < 0n`, which accepts a zero-stake run that can
+      // never pay out and leaves the session with no way to stake again.
+      if (state.stakeRf < RULES.minStakeRf) {
+        return {
+          ...state,
+          errorMessage: OUT_OF_RF_MESSAGE,
+        };
+      }
+
       if (state.availableRf < state.stakeRf) {
         return {
           ...state,
-          errorMessage: `Insufficient simulated RF to delve with ${formatRf(state.stakeRf)} RF stake.`,
+          errorMessage: `Insufficient simulated RF to delve with ${formatRf(state.stakeRf)} RF stake. ${OUT_OF_RF_MESSAGE}`,
         };
       }
 
@@ -278,10 +293,10 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         ? roundBps + RULES.boostBonusMultiplierBps
         : roundBps;
       const currentHaul = state.atRiskRf > 0n ? state.atRiskRf : state.stakeRf;
-      const newAtRisk =
-        currentHaul > 0n
-          ? (currentHaul * BigInt(appliedRoundBps)) / 10000n
-          : 0n;
+      const newAtRisk = applyMaxHaul(
+        state.stakeRf,
+        currentHaul > 0n ? (currentHaul * BigInt(appliedRoundBps)) / 10000n : 0n,
+      );
       const newCurrentMultiplierBps =
         state.stakeRf > 0n
           ? Math.round(Number((newAtRisk * 10000n) / state.stakeRf))
@@ -466,24 +481,37 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
               },
               history: [
                 ...state.history,
-                `Mine encounter (${tile.mineType}) absorbed by active Shield! Current ${formatRf(state.atRiskRf)} RF haul preserved.`,
+                `Mine encounter (${getMineDefinition(tile.mineType).name}) absorbed by active Shield! Current ${formatRf(state.atRiskRf)} RF haul preserved.`,
               ],
             },
             state,
           );
         }
 
-        // Green Mine (Lucky: doubles the CURRENT haul, keeps the run going)
+        // Green Mine (Lucky: doubles the round that was just played)
         if (tile.mineType === "green") {
-          const boostedMultiplierBps = calculateGreenMineMultiplier(state.currentMultiplierBps);
-          const doubledHaul = calculateStepHaul(state.stakeRf, boostedMultiplierBps);
+          // The round multiplier still applies — green doubles it rather than
+          // replacing it, so a green tile always beats the plain RF tile it
+          // stands in for. Previously the round was discarded entirely, which
+          // made a fixed 2x a *loss* whenever the round multiplier exceeded 2x
+          // (every round from the second onward at 20 mines, for example).
+          const greenBps = calculateGreenMineMultiplier(appliedRoundBps);
+          const baseHaul = state.atRiskRf > 0n ? state.atRiskRf : state.stakeRf;
+          const uncappedHaul =
+            baseHaul > 0n ? (baseHaul * BigInt(greenBps)) / 10000n : 0n;
+          const doubledHaul = applyMaxHaul(state.stakeRf, uncappedHaul);
+          const greenCurrentBps =
+            state.stakeRf > 0n
+              ? Number((doubledHaul * 10000n) / state.stakeRf)
+              : greenBps;
+          const greenCapped = doubledHaul < uncappedHaul;
 
           return applyDigProgress(settleSafeDig(
             {
               ...state,
               phase: "playing",
               atRiskRf: doubledHaul,
-              currentMultiplierBps: boostedMultiplierBps,
+              currentMultiplierBps: greenCurrentBps,
               nextMultiplierBps: nextRoundBps,
               safeDigCount: safeDigsAfter,
               depth: nextDepth(safeDigsAfter),
@@ -499,18 +527,19 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
               },
               history: [
                 ...state.history,
-                `Lucky Green Mine! Haul DOUBLED to ${formatRf(doubledHaul)} RF (${formatMultiplier(boostedMultiplierBps)}x)!`,
+                `Lucky Green Mine! Round ${formatMultiplier(appliedRoundBps)}x doubled to ${formatMultiplier(greenBps)}x — haul now ${formatRf(doubledHaul)} RF.${greenCapped ? " (Seam yield cap reached.)" : ""}`,
               ],
             },
             doubledHaul,
-            "That green mine was the last safe tile.",
+            "That green seam was the last safe tile.",
           ),
           state,
-        );
-      }
+          );
+        }
 
         // Any unshielded hazardous mine detonates -> total loss of haul
         const lostRf = state.atRiskRf;
+        const mineDef = getMineDefinition(tile.mineType);
         return applyDigProgress(
           {
             ...state,
@@ -530,7 +559,7 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
             },
             history: [
               ...state.history,
-              `MINE DETONATION (${tile.mineType}): lost all ${formatRf(lostRf)} at-risk RF.`,
+              `${mineDef.name} hit! Lost all ${formatRf(lostRf)} at-risk RF.`,
             ],
           },
           state,
@@ -586,6 +615,40 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
         atRiskRf: 0n,
         completedAt: Date.now(),
         history: [...state.history, "Run ended."],
+      };
+    }
+
+    case "RESET_SESSION": {
+      // Simulated-preview recovery for a drained vault. Restores the starting
+      // balance and clears the run; durable gear and session stats are kept.
+      if (state.phase !== "ready" && state.phase !== "complete") return state;
+
+      return {
+        ...state,
+        phase: "ready",
+        runId: "",
+        availableRf: RULES.startingRf,
+        stakeRf: RULES.defaultStakeRf,
+        atRiskRf: 0n,
+        bankedRf: 0n,
+        currentMultiplierBps: 10000,
+        nextMultiplierBps: calculateRoundMultiplier(state.mineCount, 1),
+        depth: 1,
+        safeDigCount: 0,
+        shieldCharges: 0,
+        boostDigsRemaining: 0,
+        selectedTileIndex: null,
+        revealedTileIds: [],
+        board: [],
+        resources: [],
+        startedAt: 0,
+        completedAt: undefined,
+        lastResolution: undefined,
+        errorMessage: undefined,
+        history: [
+          ...state.history,
+          `Preview balance reset to ${formatRf(RULES.startingRf)} RF.`,
+        ],
       };
     }
 
@@ -671,4 +734,14 @@ export function mineReducer(state: MineRun, action: MineAction): MineRun {
 
 function nextDepth(safeDigs: number): number {
   return Math.min(RULES.maxDepth, 1 + Math.floor(safeDigs / RULES.depthEverySafeDigs));
+}
+
+/** True when the session can fund another run. */
+export function canStartRun(state: MineRun): boolean {
+  return state.stakeRf >= RULES.minStakeRf && state.availableRf >= state.stakeRf;
+}
+
+/** True when the vault can no longer cover the minimum entry fee. */
+export function isOutOfRf(state: MineRun): boolean {
+  return state.availableRf < RULES.minStakeRf;
 }

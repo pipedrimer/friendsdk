@@ -59,6 +59,55 @@ async function delveAndBank({ game, page, label, minTile }) {
   await game.getByRole("heading", { name: /DELVE REPORT · SUCCESS/ }).waitFor();
   const banked = await game.locator("#final-banked-rf").textContent();
   assert.match(banked, /^\+[\d.]+ RF$/, `${label}: expected a positive simulated bank, got "${banked}"`);
+
+  // Regression guard: the delve report's primary action must stay reachable on a
+  // short viewport. The result card is taller than a landscape phone, so a
+  // centre-aligned, non-scrollable card pushed PLAN NEXT DELVE outside the
+  // viewport and left the player stuck after a loss. Dig on until a mine ends
+  // the run so this is exercised every time rather than only when the board
+  // happens to resolve early.
+  await game.locator("#btn-play-again").click();
+  await game.locator("#btn-start-mine").click();
+  await game.getByRole("grid", { name: "5 by 5 Minefield" }).waitFor();
+  await page.waitForTimeout(150);
+
+  let reportShown = false;
+  for (let i = 0; i < 25 && !reportShown; i++) {
+    const tile = game.locator("button.mine-tile:not([disabled])").first();
+    if ((await tile.count()) === 0) break;
+    await tile.click().catch(() => {});
+    for (let t = 0; t < 30; t++) {
+      if (await completeTitle().isVisible().catch(() => false)) {
+        reportShown = true;
+        break;
+      }
+      await page.waitForTimeout(100);
+    }
+  }
+  assert.ok(reportShown, `${label}: expected a delve report after digging for a loss`);
+  const again = game.locator("#btn-play-again");
+  await again.waitFor();
+  const againBox = await again.boundingBox();
+  assert.ok(againBox, `${label}: PLAN NEXT DELVE is rendered`);
+  // Same reachability rule the rest of this suite uses: on-screen, or the app
+  // container scrolls to it. The bug this guards against was the third case —
+  // clipped with no scroll at all, so the click timed out.
+  const reach = await again.evaluate((el) => {
+    const app = el.closest(".rare-friend-mine-app");
+    const rect = el.getBoundingClientRect();
+    return {
+      onScreen: rect.top >= 0 && rect.bottom <= (app?.clientHeight ?? Infinity),
+      scrolls: !!app && app.scrollHeight > app.clientHeight,
+      appHeight: app?.clientHeight ?? 0,
+      scrollHeight: app?.scrollHeight ?? 0,
+    };
+  });
+  assert.ok(
+    reach.onScreen || reach.scrolls,
+    `${label}: PLAN NEXT DELVE is unreachable (onScreen=${reach.onScreen}, app ${reach.appHeight}px vs scroll ${reach.scrollHeight}px)`,
+  );
+  await again.click();
+  await game.locator("#btn-start-mine").waitFor();
   await page.screenshot({ path: `./games/rare-friend-mine/tests/artifacts/mobile_${label}_done.png` });
   return { digs, banked };
 }

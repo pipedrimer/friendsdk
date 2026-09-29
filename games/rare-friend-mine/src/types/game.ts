@@ -188,6 +188,7 @@ export type MineAction =
   | { type: "FINISH_CRASH" }
   | { type: "BANK" }
   | { type: "END_RUN" }
+  | { type: "RESET_SESSION" }
   | { type: "SET_ERROR"; message: string }
   | { type: "PURCHASE_COSMETIC"; itemId: string }
   | { type: "EQUIP_COSMETIC"; itemId: string }

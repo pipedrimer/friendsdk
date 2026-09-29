@@ -1,7 +1,7 @@
 import React from "react";
 import type { MineRun } from "../types/game.js";
 import { formatRf } from "../engine/economy.js";
-import { formatMultiplier, getDangerTier } from "../engine/rules.js";
+import { formatMultiplier, getDangerTier, getMineDefinition, ORES } from "../engine/rules.js";
 
 interface ResultOverlayProps {
   state: MineRun;
@@ -13,6 +13,13 @@ export function ResultOverlay({ state, onPlayAgain }: ResultOverlayProps) {
   if (state.phase === "complete") {
     const isSuccess = state.bankedRf > 0n;
     const tier = getDangerTier(state.mineCount);
+    const lossResolution =
+      !isSuccess && state.lastResolution?.type === "mine"
+        ? state.lastResolution
+        : null;
+    const lossCopy = lossResolution
+      ? getMineDefinition(lossResolution.mineType)
+      : null;
 
     return (
       <div className="result-overlay-backdrop" role="dialog" aria-modal="true" aria-labelledby="result-title">
@@ -36,6 +43,12 @@ export function ResultOverlay({ state, onPlayAgain }: ResultOverlayProps) {
               {isSuccess ? `+${formatRf(state.bankedRf)} RF` : "HAUL LOST IN MINE"}
             </div>
 
+            {lossCopy && (
+              <p className="result-loss-line" id="final-loss-line">
+                <strong>{lossCopy.name}.</strong> {lossCopy.failureLine}
+              </p>
+            )}
+
             <table className="result-stats-table">
               <tbody>
                 <tr>
@@ -45,6 +58,10 @@ export function ResultOverlay({ state, onPlayAgain }: ResultOverlayProps) {
                 <tr>
                   <td>MINES:</td>
                   <td>{state.mineCount} MINES · {tier.name.toUpperCase()}</td>
+                </tr>
+                <tr>
+                  <td>SEAM:</td>
+                  <td>{tier.tagline}</td>
                 </tr>
                 <tr>
                   <td>SAFE TILES:</td>
@@ -73,8 +90,13 @@ export function ResultOverlay({ state, onPlayAgain }: ResultOverlayProps) {
                 </span>
                 <div style={{ display: "flex", flexWrap: "wrap", gap: "6px", marginTop: "4px" }}>
                   {state.resources.map((res, i) => (
-                    <span key={`${res.resourceId}_${i}`} style={{ border: "var(--rule)", padding: "2px 6px", fontSize: "10px" }}>
+                    <span
+                      key={`${res.resourceId}_${i}`}
+                      className={`ore-chip ore-${res.rarity}`}
+                      title={ORES[res.resourceId]?.blurb ?? "A rare seam find."}
+                    >
                       {res.name}
+                      <small className="chip-rarity">{res.rarity}</small>
                     </span>
                   ))}
                 </div>

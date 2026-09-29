@@ -41,11 +41,18 @@ amount, never more** — do you cash out, or push deeper?
   board (tier names Novice → Inferno). More mines = higher per-round multipliers.
 - **Dig** safe tiles to grow your at-risk haul via the compounding round
   multiplier. The round multiplier grows every safe dig at the fair survival
-  odds for that board, discounted by a small house margin.
+  odds for that board, discounted by a `900` basis point house margin each
+  round.
 - **Bank [C]** secures your at-risk haul; the run ends.
 - **Shield** and **Boost** are rare in-board finds, never purchasable. A Shield
   absorbs one mine detonation; a Boost adds +0.50× to your next two digs.
-- **Green Mine** is a lucky anomaly — it doubles (2×) your current at-risk RF.
+- **Lucky Seam** (green) is a lucky anomaly — it **doubles the round it
+  replaces** (including any active Boost), so the round still counts. It is
+  never placed on a board with fewer than three safe tiles.
+- **Seam yield cap**: a delve can never pay more than **×250** of its stake. The
+  HUD shows **YIELD CAP** once the haul can no longer grow, and the remaining
+  safe tiles are only worth digging for ore. Losing every RF is recoverable —
+  **RESET SESSION** restores 10 RF while keeping all gear and achievements.
 - **Ores** (Copper, Moon, Cosmic, Golden, Shadow) are collectible finds with no
   RF value at the bank; they lay the groundwork for future crafting/market
   mechanics.
@@ -64,20 +71,30 @@ Each preview ledger starts with **10 RF**. One run costs **1 RF**. Buying a
 run reserves its maximum prize backing; kept rewards retain their backed RF
 value until banked, with no expiry. All amounts use bigint RF base units.
 
-Per-round multipliers are fair survival odds per board discounted by a `250`
-basis point house margin each round — the house edge keeps the economy
-positive without caps or arbitrary pay tables. (Monte Carlo sims confirm a
-positive house edge on every selectable count) (Monte Carlo sims cover every
-mine count from 5 to 24, the full settable range).
+Per-round multipliers are fair survival odds per board discounted by a `900`
+basis point house margin each round. Two engine-enforced rules keep the
+economy fundable: a **×250 stake-relative yield cap**, and no Lucky Seam on
+boards with fewer than three safe tiles.
 
-| Mines | Start mult | Peak (full clear)  |
-| ----- | ---------- | ------------------ |
-| 5     | ×1.22      | ×31,987            |
-| 7     | ×1.35      | ×304,547           |
-| 10    | ×1.62      | ×2,234,760         |
-| 15    | ×2.44      | ×2,537,438         |
-| 20    | ×4.88      | ×46,812            |
-| 24    | ×24.38     | one safe tile only |
+The house edge is **measured, not asserted**. `tests/economy-sim.ts` drives the
+real reducer across every selectable mine count (5–24) and sweeps eight legal
+bank policies including *never bank*, the greediest possible strategy, and
+asserts that the **best** policy found still loses money. Board generation and
+dig order do not depend on when the player banks, so one pass records the whole
+haul trajectory and every threshold is read off that same path. At 60,000
+paired runs the house wins on all 20 counts: most cells show a 6–9% edge, and the
+two rare-jackpot boards (20 and 23 mines) measure 2–5% and swing between runs,
+so the enforced invariant is that **no count is player-profitable** rather than
+any specific margin.
+
+| Mines | Start mult | Peak (capped) |
+| ----- | ---------- | ------------- |
+| 5     | ×1.14      | ×250          |
+| 7     | ×1.26      | ×250          |
+| 10    | ×1.52      | ×250          |
+| 15    | ×2.28      | ×250          |
+| 20    | ×4.55      | ×250          |
+| 24    | ×22.75     | ×22.75        |
 
 Ores, shields and boosts are rare board finds. Purchases, balances, at-risk
 hauls, banks and outcomes in this preview are strictly simulated — no real
@@ -99,9 +116,8 @@ from a funded account balance at all times.
 
 ## Checks and known issues
 
-- 29 deterministic engine unit tests (multipliers, wipes, shields, boosts, full-clear auto-bank, gear locker economy and trophies).
-- 10,000-run Monte Carlo economy simulation per selectable mine count (5–24,
-  positive house edge on every count).
+- 44 deterministic engine unit tests (multipliers, wipes, shields, boosts, green seam, yield cap, full-clear auto-bank, 0-RF soft-lock recovery, gear locker economy and trophies).
+- Monte Carlo economy simulation sweeping 8 legal bank policies (including *never bank*) against every selectable mine count, 5–24. Board and dig order are independent of when the player banks, so one pass scores every threshold off the same path. At 60,000 paired runs the house wins on all 20 counts; the gate fails only when the best policy beats the house by more than two standard errors, because the 20- and 23-mine jackpots are rare enough to swing the point estimate several points between runs.
 - Automated browser smoke test: real sandboxed runtime, mock wallet, gear purchase/equip + NEW badge flow, banked haul verified (e.g., +1.21 RF run).
 - Responsive mobile smoke test: portrait 390×740 and short-landscape 667×375, frame layout + touch-target geometry checks.
 - `npx friendsdk check games/rare-friend-mine` validates the game directory; TypeScript typecheck clean.

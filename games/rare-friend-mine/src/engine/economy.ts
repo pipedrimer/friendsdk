@@ -61,8 +61,23 @@ export function calculateStepHaul(stake: bigint, multiplierBps: number): bigint 
 }
 
 /**
- * Calculate lucky green mine multiplier boost.
+ * Lucky green mine multiplier.
+ *
+ * `roundBps` is the multiplier for the round being played (including any
+ * active Boost). Green doubles that round, so the round still counts and a
+ * green tile is always worth strictly more than the rock it replaced.
  */
-export function calculateGreenMineMultiplier(multiplierBps: number): number {
-  return multiplierBps * Number(RULES.greenMineMultiplier);
+export function calculateGreenMineMultiplier(roundBps: number): number {
+  return roundBps * Number(RULES.greenMineMultiplier);
+}
+
+/**
+ * Apply the seam yield limit to a haul. A delve can never pay more than
+ * RULES.maxHaulMultipleBps of the stake, so the advertised peak stays bounded
+ * no matter how many rounds survive.
+ */
+export function applyMaxHaul(stake: bigint, haul: bigint): bigint {
+  if (stake <= 0n) return haul > 0n ? haul : 0n;
+  const ceiling = (stake * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+  return haul > ceiling ? ceiling : haul;
 }

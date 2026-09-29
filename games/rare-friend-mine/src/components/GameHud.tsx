@@ -1,7 +1,7 @@
 import React from "react";
 import type { MineRun } from "../types/game.js";
 import { formatRf, calculateStepHaul } from "../engine/economy.js";
-import { formatMultiplier, getDangerTier, getStartingMultiplier } from "../engine/rules.js";
+import { formatMultiplier, formatMaxHaulMultiple, getDangerTier, getStartingMultiplier, RULES } from "../engine/rules.js";
 import {
   BoltIcon,
   BombIcon,
@@ -50,6 +50,10 @@ export function GameHud({
     state.phase === "complete";
   const hasMultiplier = state.safeDigCount > 0;
   const projectedPayout = calculateStepHaul(state.stakeRf, startBps);
+  const yieldCapped =
+    inRun &&
+    state.stakeRf > 0n &&
+    state.atRiskRf >= (state.stakeRf * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
 
   return (
     <header className="game-hud" aria-label="Game Status Bar">
@@ -117,6 +121,20 @@ export function GameHud({
               </span>
             </span>
           </div>
+
+          {/* 6. Seam yield cap — warn once the haul can no longer grow */}
+          {yieldCapped && (
+            <div className="hud-stat-box yield-cap" id="hud-yield-cap">
+              <span className="stat-label">
+                <SparklesIcon className="rf-icon" aria-hidden="true" />
+                YIELD CAP
+              </span>
+              <span className="stat-value">
+                {formatMaxHaulMultiple()} reached
+                <small className="stat-sub">dig for ore, not RF</small>
+              </span>
+            </div>
+          )}
         </>
       ) : (
         <>
@@ -162,6 +180,7 @@ export function GameHud({
       >
         <BombIcon className="rf-icon" aria-hidden="true" /> {state.mineCount}M ·{" "}
         {tier.name.toUpperCase()}
+        <small className="hud-tier-tagline">{tier.tagline}</small>
       </div>
 
       {/* 6. Utility Controls (Gear, Theme, Sound, Motion) */}

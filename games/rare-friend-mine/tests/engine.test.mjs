@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-import { createInitialState, mineReducer } from "../src/engine/mineEngine.ts";
+import { createInitialState, canStartRun, isOutOfRf, mineReducer } from "../src/engine/mineEngine.ts";
 import {
   calculateMinesMultiplier,
   calculateRoundMultiplier,
@@ -9,11 +9,12 @@ import {
   getDangerTier,
   getPeakMultiplier,
   getStartingMultiplier,
+  getUncappedPeakMultiplier,
   MINES_CONFIG,
   RF_UNIT,
   RULES,
 } from "../src/engine/rules.ts";
-import { calculateStepHaul, formatRf } from "../src/engine/economy.ts";
+import { applyMaxHaul, calculateGreenMineMultiplier, calculateStepHaul, formatRf } from "../src/engine/economy.ts";
 
 /**
  * Exact expected haul after a run of safe digs, mirroring the engine's bigint
@@ -182,19 +183,40 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
     assert.equal(state.shieldCharges, 0);
   });
 
-  it("8. Green Mine (Lucky): doubles current progressive multiplier and haul", () => {
+  it("8. Green Mine (Lucky): doubles the round it replaces, not a flat 2x", () => {
     let state = createInitialState(1001n);
     state = mineReducer(state, { type: "START_RUN", seed: 42 });
     state.currentMultiplierBps = 15000; // 1.50x
     state.atRiskRf = (1n * RF_UNIT * 15000n) / 10000n;
+    const haulBefore = state.atRiskRf;
+
+    // Green applies the round multiplier and then doubles it. The round is NOT
+    // discarded, so a green tile is always worth strictly more than the plain RF
+    // tile it replaces — a fixed 2x used to be a LOSS from round 2 upward.
+    const round1 = getStartingMultiplier(5);
+    const expectedBps = round1 * 2;
 
     state.board[0] = { id: 0, kind: "mine", mineType: "green", revealed: false };
     state = mineReducer(state, { type: "SELECT_TILE", tileId: 0 });
     state = mineReducer(state, { type: "FINISH_REVEAL" });
 
     assert.equal(state.phase, "playing");
-    assert.equal(state.currentMultiplierBps, 30000, "1.50x doubled to 3.00x (30000 bps)");
-    assert.equal(state.atRiskRf, 3n * RF_UNIT);
+    // currentMultiplierBps is the NET multiple of the stake, so the 1.50x haul
+    // the test seeded becomes 1.50x * (1.1375x * 2) = 3.4125x.
+    assert.equal(
+      state.currentMultiplierBps,
+      Math.round((15000 * expectedBps) / 10000),
+      `1.50x net haul at the doubled ${formatMultiplier(expectedBps)}x round`,
+    );
+    assert.equal(
+      state.atRiskRf,
+      (haulBefore * BigInt(expectedBps)) / 10000n,
+      "Green pays the current haul at the doubled round, so it always beats a flat 2x",
+    );
+    assert.ok(
+      state.atRiskRf > haulBefore * 2n,
+      "A green tile must pay more than doubling the haul while the round is above 1.00x",
+    );
   });
 
   it("9. Bank: immediately secures exactly the compounded haul and completes run", () => {
@@ -331,30 +353,52 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
   });
 
   it("17. Peak multiplier: full clear lands exactly on the design peak for every board", () => {
-    // A full clear always equals the design peak (no arbitrary cap).
+    // A full clear always equals the design peak, and the peak is bounded by the
+    // seam yield limit so the advertised jackpot stays collectable.
     for (let mines = 5; mines <= 24; mines++) {
       const safeTiles = MINES_CONFIG.totalTiles - mines;
       const fullClear = calculateMinesMultiplier(mines, safeTiles);
       assert.equal(fullClear, getPeakMultiplier(mines), `${mines} mines full clear must equal design peak`);
       assert.ok(fullClear >= getStartingMultiplier(mines), `${mines} mines peak cannot be below its start`);
+      assert.ok(
+        fullClear <= RULES.maxHaulMultipleBps,
+        `${mines} mines peak (${fullClear}) must not exceed the yield cap (${RULES.maxHaulMultipleBps})`,
+      );
     }
 
     // The 24-mine board has exactly one safe tile, so its peak is its start.
     assert.equal(calculateMinesMultiplier(24, 1), getStartingMultiplier(24), "24 mines peak is its single-start multiplier");
     assert.equal(getPeakMultiplier(24), getStartingMultiplier(24));
 
-    // The compounding jackpots are large — a 5-mine full clear is over 30,000x.
-    assert.ok(getPeakMultiplier(5) > 300_000_000, "5 mines full clear exceeds 30,000x (claim payout visibility)");
+    // The raw compounding curve is astronomically larger than the cap on the easy
+    // boards, which is exactly why the cap exists: a 5-mine full clear compounds
+    // past 8,000x but can only ever bank 250x.
+    assert.ok(
+      getUncappedPeakMultiplier(5) > 20 * RULES.maxHaulMultipleBps,
+      "5 mines uncapped compounding is far above the yield cap",
+    );
+    assert.equal(getPeakMultiplier(5), RULES.maxHaulMultipleBps, "5 mines full clear is clamped to the yield cap");
   });
 
-  it("18. Every safe dig grows the multiplier at least +0.01x without overshooting the peak", () => {
+  it("18. Every safe dig grows the multiplier until the yield cap, then holds", () => {
     for (let mines = 5; mines <= 24; mines++) {
       const safeTiles = MINES_CONFIG.totalTiles - mines;
       let prev = 10000;
+      let saturated = false;
       for (let step = 1; step <= safeTiles; step++) {
         const current = calculateMinesMultiplier(mines, step);
-        assert.ok(current - prev >= 100, `${mines} mines step ${step} gains at least 100bps (got ${current - prev})`);
+        if (saturated) {
+          assert.equal(current, prev, `${mines} mines step ${step} holds at the yield cap`);
+          assert.equal(current, RULES.maxHaulMultipleBps, `${mines} mines holds at the cap, not below it`);
+        } else {
+          assert.ok(
+            current - prev >= 100,
+            `${mines} mines step ${step} gains at least 100bps (got ${current - prev})`,
+          );
+          if (current === RULES.maxHaulMultipleBps) saturated = true;
+        }
         assert.ok(current <= getPeakMultiplier(mines), `${mines} mines step ${step} stays under the peak`);
+        assert.ok(current <= RULES.maxHaulMultipleBps, `${mines} mines step ${step} respects the yield cap`);
         prev = current;
       }
     }
@@ -477,13 +521,27 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
     for (let count = 5; count <= 24; count++) {
       const safeTiles = MINES_CONFIG.totalTiles - count;
       let cumulative = 10000;
+      let clipped = false;
       for (let step = 1; step <= safeTiles; step++) {
         const roundBps = calculateRoundMultiplier(count, step);
         assert.ok(roundBps >= 10001, `${count} mines step ${step} round multiplier cannot shrink below 1.00x`);
         cumulative = Math.round((cumulative * roundBps) / 10000);
+        if (cumulative > RULES.maxHaulMultipleBps) {
+          cumulative = RULES.maxHaulMultipleBps;
+          clipped = true;
+        }
       }
-      // Compounding every per-round multiplier reconstructs the design peak.
+      // Compounding every per-round multiplier reconstructs the design peak. The
+      // curve is only ever clipped at the yield cap, never anywhere else.
       assert.equal(cumulative, getPeakMultiplier(count), `${count} mines compounded rounds must equal the peak`);
+      assert.ok(
+        getUncappedPeakMultiplier(count) >= cumulative,
+        `${count} mines capping can only reduce the raw curve`,
+      );
+      assert.ok(
+        !clipped || cumulative === RULES.maxHaulMultipleBps,
+        `${count} mines only ever clips at the yield cap`,
+      );
     }
   });
 
@@ -557,7 +615,14 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
       assert.equal(state.safeDigCount, safe);
       const roundBps = [];
       for (let step = 1; step <= safe; step++) roundBps.push(calculateRoundMultiplier(count, step));
-      assert.equal(state.bankedRf, compoundRf(1n * RF_UNIT, roundBps), `${count} mines banked exactly the per-step compounding`);
+      // A full clear banks the compounding curve clamped at the yield limit.
+      const capRf = (1n * RF_UNIT * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+      const rawHaul = compoundRf(1n * RF_UNIT, roundBps);
+      assert.equal(
+        state.bankedRf,
+        rawHaul > capRf ? capRf : rawHaul,
+        `${count} mines banked the per-step compounding, clamped at the yield cap`,
+      );
       const peak = getPeakMultiplier(count);
       assert.ok(Math.abs(state.currentMultiplierBps - peak) <= peak * 0.0001, `${count} mines current multiplier is within 1bp of the design peak`);
     }
@@ -609,16 +674,17 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
 
   it("29. Gear Locker: achievements grant trophies and track session stats", () => {
     // Bank path: deterministic 5-mine board (tiles 0-4 mines, 5-24 RF).
-    // Compounded 1 RF stake clears 25 RF at drill 12 -> unlocks within one run.
+    // A compounded 1 RF stake crosses 25 RF at drill 14 and saturates at the
+    // 250 RF yield cap at drill 18, so the trophy unlocks within one run.
     let state = createInitialState(1001n);
     state = mineReducer(state, { type: "START_RUN", seed: 11 });
     for (let i = 0; i < 5; i++) state.board[i] = { id: i, kind: "mine", mineType: "red", revealed: false };
     for (let i = 5; i < 25; i++) state.board[i] = { id: i, kind: "rf", amount: 1, revealed: false };
-    for (let i = 5; i < 17 && state.phase === "playing"; i++) {
+    for (let i = 5; i < 19 && state.phase === "playing"; i++) {
       state = mineReducer(state, { type: "SELECT_TILE", tileId: i });
       state = mineReducer(state, { type: "FINISH_REVEAL" });
     }
-    assert.equal(state.stats.safeDigs, 12, "Safe digs counted so far");
+    assert.equal(state.stats.safeDigs, 14, "Safe digs counted so far");
     assert.ok(state.atRiskRf >= 25n * RF_UNIT, "Compounded haul crosses the 25 RF single-bank threshold");
 
     state = mineReducer(state, { type: "BANK" });
@@ -659,5 +725,228 @@ describe("Rare Friends: MINE - Progressive Multiplier Engine Unit Tests", () => 
     assert.ok(clear.stats.bankedRf >= 100n * RF_UNIT, "Peak auto-bank clears the 100 RF bounty");
     assert.ok(clear.cosmetics.unlocked.includes("helmet/golden"), "Golden Helm unlocks on full clear");
     assert.ok(clear.cosmetics.unlocked.includes("aura/legend"), "Legend Glow unlocks past 100 RF banked (full-clear path)");
+  });
+});
+
+describe("Rare Friends: MINE - Vault soft-lock regression", () => {
+  /** Drain the vault to exactly 0 RF by playing runs that bust on a red mine. */
+  function drainVaultToZero() {
+    let state = createInitialState(1001n);
+    let run = 0;
+    while (state.availableRf > 0n && run < 40) {
+      run += 1;
+      state = mineReducer(state, { type: "START_RUN", seed: 4242 + run });
+      if (state.phase !== "playing") return state;
+      // Force tile 0 to be a red mine so the run always busts.
+      state.board[0] = { id: 0, kind: "mine", mineType: "red", revealed: false };
+      state = mineReducer(state, { type: "SELECT_TILE", tileId: 0 });
+      state = mineReducer(state, { type: "FINISH_REVEAL" });
+      state = mineReducer(state, { type: "FINISH_CRASH" });
+      assert.equal(state.phase, "complete", "busted run must settle");
+      state = mineReducer(state, { type: "RETURN_TO_READY" });
+    }
+    return state;
+  }
+
+  it("losing runs can drain the vault to exactly 0 RF", () => {
+    const state = drainVaultToZero();
+    assert.equal(state.availableRf, 0n, "vault should be empty");
+    assert.equal(state.phase, "ready", "should be back on the pre-run screen");
+  });
+
+  it("START_RUN at 0 RF is refused instead of opening an unpayable run", () => {
+    // Regression: the old guard was `availableRf < stakeRf`, so a vault
+    // clamped to a 0 RF stake passed the check (0n < 0n) and started a run
+    // that could never pay out and could never be staked again.
+    let state = { ...createInitialState(1001n), availableRf: 0n, stakeRf: 0n, phase: "ready" };
+    state = mineReducer(state, { type: "START_RUN", seed: 1 });
+    assert.equal(state.phase, "ready", "zero-stake run must not start");
+    assert.match(state.errorMessage ?? "", /Out of simulated RF/);
+  });
+
+  it("START_RUN with 0 RF but a 1 RF stake is refused with recovery guidance", () => {
+    let state = { ...createInitialState(1001n), availableRf: 0n, phase: "ready" };
+    state = mineReducer(state, { type: "START_RUN", seed: 1 });
+    assert.equal(state.phase, "ready", "run must not start");
+    assert.match(state.errorMessage ?? "", /Insufficient simulated RF/);
+    assert.match(state.errorMessage ?? "", /Reset your preview balance/);
+  });
+
+  it("isOutOfRf and canStartRun drive the START DELVE button state", () => {
+    const empty = { ...createInitialState(1001n), availableRf: 0n, stakeRf: 0n, phase: "ready" };
+    assert.equal(isOutOfRf(empty), true);
+    assert.equal(canStartRun(empty), false);
+
+    const funded = createInitialState(1001n);
+    assert.equal(isOutOfRf(funded), false);
+    assert.equal(canStartRun(funded), true);
+
+    // A half-funded stake must not be startable either.
+    const short = { ...funded, stakeRf: 10n * RF_UNIT, availableRf: 3n * RF_UNIT };
+    assert.equal(canStartRun(short), false);
+  });
+
+  it("RESET_SESSION restores the starting balance and play resumes", () => {
+    let state = drainVaultToZero();
+    assert.equal(state.availableRf, 0n);
+
+    state = mineReducer(state, { type: "RESET_SESSION" });
+    assert.equal(state.availableRf, RULES.startingRf);
+    assert.equal(state.stakeRf, RULES.defaultStakeRf);
+    assert.equal(state.errorMessage, undefined, "reset clears the out-of-RF error");
+    assert.equal(isOutOfRf(state), false);
+
+    state = mineReducer(state, { type: "START_RUN", seed: 99 });
+    assert.equal(state.phase, "playing", "a fresh delve is startable after reset");
+    assert.equal(state.availableRf, RULES.startingRf - RULES.defaultStakeRf);
+  });
+
+  it("RESET_SESSION keeps durable gear and session stats", () => {
+    let state = createInitialState(1001n);
+    state = mineReducer(state, { type: "PURCHASE_COSMETIC", itemId: "pickaxe/ember" });
+    assert.ok(state.cosmetics.unlocked.includes("pickaxe/ember"));
+
+    state = { ...state, availableRf: 0n, stats: { ...state.stats, safeDigs: 42 } };
+    const reset = mineReducer(state, { type: "RESET_SESSION" });
+
+    assert.ok(reset.cosmetics.unlocked.includes("pickaxe/ember"), "gear survives a balance reset");
+    assert.equal(reset.stats.safeDigs, 42, "achievement progress survives a balance reset");
+  });
+
+  it("RESET_SESSION is refused mid-run so it cannot be used to dodge a blast", () => {
+    let state = createInitialState(1001n);
+    state = mineReducer(state, { type: "START_RUN", seed: 5 });
+    assert.equal(state.phase, "playing");
+
+    const after = mineReducer(state, { type: "RESET_SESSION" });
+    assert.equal(after, state, "state must be untouched while a run is live");
+  });
+
+  it("funded play is unaffected by the new guards", () => {
+    let state = createInitialState(1001n);
+    state = mineReducer(state, { type: "START_RUN", seed: 77 });
+    assert.equal(state.phase, "playing");
+    assert.equal(state.availableRf, RULES.startingRf - RULES.defaultStakeRf);
+    assert.equal(state.errorMessage, undefined);
+  });
+});
+
+describe("Rare Friends: MINE - seam yield cap and lucky-seam placement", () => {
+  /** Drive a board of all-safe RF tiles and report the haul after each dig. */
+  function digAllSafe(mineCount, seed = 11) {
+    let state = createInitialState(1001n);
+    state = mineReducer(state, { type: "SET_MINE_COUNT", count: mineCount });
+    state = mineReducer(state, { type: "START_RUN", seed });
+    for (let i = 0; i < mineCount; i++) {
+      state.board[i] = { id: i, kind: "mine", mineType: "red", revealed: false };
+    }
+    for (let i = mineCount; i < MINES_CONFIG.totalTiles; i++) {
+      state.board[i] = { id: i, kind: "rf", amount: 1, revealed: false };
+    }
+    const hauls = [];
+    for (let i = mineCount; i < MINES_CONFIG.totalTiles; i++) {
+      if (state.phase !== "playing") break;
+      state = mineReducer(state, { type: "SELECT_TILE", tileId: i });
+      state = mineReducer(state, { type: "FINISH_REVEAL" });
+      hauls.push(state.atRiskRf);
+    }
+    return { state, hauls };
+  }
+
+  it("no delve can ever pay more than the yield cap, for any board", () => {
+    const stake = 1n * RF_UNIT;
+    const capRf = (stake * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+    for (let mines = 5; mines <= 24; mines++) {
+      const { state, hauls } = digAllSafe(mines);
+      for (const haul of hauls) {
+        assert.ok(
+          haul <= capRf,
+          `${mines} mines: haul ${haul} must never exceed the ${capRf} yield cap`,
+        );
+      }
+      assert.ok(state.bankedRf <= capRf, `${mines} mines: banked haul respects the cap`);
+      // The two shortest boards cannot compound far enough to reach the cap.
+      if (MINES_CONFIG.totalTiles - mines <= 2) {
+        assert.ok(state.bankedRf < capRf, `${mines} mines never reaches the cap on a short board`);
+      }
+    }
+  });
+
+  it("the cap binds on the long boards, which is what makes it a real bound", () => {
+    const capRf = (1n * RF_UNIT * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+    for (const mines of [5, 7, 10, 15, 20]) {
+      const { state } = digAllSafe(mines);
+      assert.equal(
+        state.bankedRf,
+        capRf,
+        `${mines} mines full clear must bank exactly the capped jackpot`,
+      );
+    }
+  });
+
+  it("the yield cap scales with the stake, not with a fixed RF amount", () => {
+    const { state } = digAllSafe(5);
+    assert.equal(state.bankedRf, 250n * RF_UNIT, "1 RF stake banks 250 RF at the 250x cap");
+  });
+
+  it("no lucky seam is placed on boards with fewer than three safe tiles", () => {
+    // 23 and 24 mines leave 2 and 1 safe tiles respectively. A green tile there
+    // doubles a single enormous round, which is the one case the house edge
+    // cannot absorb.
+    for (const mines of [23, 24]) {
+      for (let seed = 0; seed < 40; seed++) {
+        let state = createInitialState(1001n);
+        state = mineReducer(state, { type: "SET_MINE_COUNT", count: mines });
+        state = mineReducer(state, { type: "START_RUN", seed: seed * 7919 + 3 });
+        const green = state.board.filter((t) => t.kind === "mine" && t.mineType === "green");
+        assert.equal(green.length, 0, `${mines} mines, seed ${seed}: no green mine on a ${25 - mines}-tile board`);
+      }
+    }
+  });
+
+  it("a lucky seam is still placed on boards with room for luck to compound", () => {
+    let seen = 0;
+    for (let seed = 0; seed < 200 && seen === 0; seed++) {
+      let state = createInitialState(1001n);
+      state = mineReducer(state, { type: "SET_MINE_COUNT", count: 5 });
+      state = mineReducer(state, { type: "START_RUN", seed: seed * 104729 + 11 });
+      seen = state.board.filter((t) => t.kind === "mine" && t.mineType === "green").length;
+    }
+    assert.ok(seen > 0, "the 10% green find chance still appears on a 5-mine board");
+  });
+
+  it("the green seam is still subject to the yield cap", () => {
+    let state = createInitialState(1001n);
+    state = mineReducer(state, { type: "SET_MINE_COUNT", count: 5 });
+    state = mineReducer(state, { type: "START_RUN", seed: 11 });
+    const capRf = (state.stakeRf * BigInt(RULES.maxHaulMultipleBps)) / 10000n;
+    // Seed a haul already at the cap, then dig a green tile.
+    state.atRiskRf = capRf;
+    state.board[0] = { id: 0, kind: "mine", mineType: "green", revealed: false };
+    state = mineReducer(state, { type: "SELECT_TILE", tileId: 0 });
+    state = mineReducer(state, { type: "FINISH_REVEAL" });
+    assert.equal(state.atRiskRf, capRf, "a green seam cannot push the haul past the cap");
+    assert.ok(
+      state.history.some((h) => /yield cap/i.test(h)),
+      "the log says the cap was reached",
+    );
+  });
+
+  it("a lucky seam still beats the plain tile it replaces on every round", () => {
+    // The defect this guards: a fixed 2x used to be a LOSS from round 2 upward
+    // on high-mine boards, where the round multiplier is already above 2x.
+    for (let mines = 5; mines <= 24; mines++) {
+      const safe = MINES_CONFIG.totalTiles - mines;
+      for (let round = 1; round <= safe; round++) {
+        const roundBps = calculateRoundMultiplier(mines, round);
+        const greenBps = calculateGreenMineMultiplier(roundBps);
+        const plainHaul = (1n * RF_UNIT * BigInt(roundBps)) / 10000n;
+        const greenHaul = (1n * RF_UNIT * BigInt(greenBps)) / 10000n;
+        assert.ok(
+          greenHaul > plainHaul,
+          `${mines} mines round ${round}: green (${greenHaul}) must beat the plain tile (${plainHaul})`,
+        );
+      }
+    }
   });
 });

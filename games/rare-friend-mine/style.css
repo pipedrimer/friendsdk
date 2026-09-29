@@ -361,6 +361,41 @@ button:focus-visible, input:focus-visible {
   white-space: nowrap;
 }
 
+.hud-tier-tagline {
+  font-family: var(--font-body);
+  font-size: 9px;
+  font-style: italic;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0.01em;
+  opacity: 0.75;
+  padding-left: 5px;
+  border-left: 1px solid currentColor;
+}
+
+.hud-stat-box.yield-cap {
+  border-color: var(--color-gold-border);
+  background: var(--color-gold-bg);
+  color: var(--color-gold);
+  animation: yieldCapGlow 1.6s ease-in-out infinite;
+}
+
+@keyframes yieldCapGlow {
+  0%,
+  100% {
+    box-shadow: none;
+  }
+  50% {
+    box-shadow: 0 0 0 2px var(--color-gold-border);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hud-stat-box.yield-cap {
+    animation: none;
+  }
+}
+
 .hud-tier-badge.tier-novice {
   background: var(--color-emerald-bg);
   color: var(--color-emerald);
@@ -929,6 +964,190 @@ button:focus-visible, input:focus-visible {
 .start-delve-btn:active {
   box-shadow: var(--shadow-pressed);
   transform: translate(2px, 2px);
+}
+
+.start-delve-btn:disabled {
+  cursor: not-allowed;
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-border);
+  color: var(--color-danger-text);
+  box-shadow: 3px 3px 0 0 var(--color-danger-border);
+}
+
+.start-delve-btn:disabled:hover {
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  box-shadow: 3px 3px 0 0 var(--color-danger-border);
+}
+
+.out-of-rf-panel {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 3px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  box-shadow: var(--shadow-raised-lg);
+  text-align: left;
+}
+
+.out-of-rf-panel .rf-icon {
+  flex: 0 0 auto;
+  color: var(--color-danger);
+}
+
+.out-of-rf-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.out-of-rf-copy strong {
+  color: var(--color-danger);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.out-of-rf-reset-btn {
+  flex: 0 0 auto;
+  min-height: 44px;
+  padding: 8px 14px;
+  border: 3px solid var(--color-emerald-border);
+  background: var(--color-emerald);
+  color: var(--paper);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  box-shadow: 2px 2px 0 0 var(--color-emerald-border);
+}
+
+.out-of-rf-reset-btn:hover {
+  background: var(--color-emerald-border);
+}
+
+.out-of-rf-reset-btn:active {
+  transform: translate(2px, 2px);
+  box-shadow: none;
+}
+
+/* --- Delve log: the engine's own run narration, surfaced --- */
+.run-log {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border: var(--rule-dashed);
+  background: var(--surface-raised);
+}
+
+.run-log-title {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--ink-60);
+}
+
+.run-log-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.run-log-line {
+  font-size: 10px;
+  line-height: 1.35;
+  color: var(--ink-60);
+  padding-left: 10px;
+  position: relative;
+}
+
+.run-log-line::before {
+  content: ">";
+  position: absolute;
+  left: 0;
+  color: var(--color-gold);
+  font-weight: 700;
+}
+
+.run-log-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border: var(--rule);
+  background: var(--color-gold-bg);
+  color: var(--color-gold);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+/* --- Ore rarity, shown to sighted players, not colour alone --- */
+.tile-rarity,
+.chip-rarity {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.9;
+}
+
+.ore-chip {
+  border: var(--rule);
+  padding: 2px 6px;
+  font-size: 10px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.ore-chip.ore-common {
+  color: var(--ink-60);
+}
+.ore-chip.ore-uncommon {
+  color: var(--color-emerald);
+}
+.ore-chip.ore-rare {
+  color: var(--color-cyan);
+}
+.ore-chip.ore-epic {
+  color: var(--color-violet);
+}
+.ore-chip.ore-legendary {
+  color: var(--color-gold);
+}
+
+.result-loss-line {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border-left: 3px solid var(--color-danger-border);
+  background: var(--color-danger-bg);
+  color: var(--color-danger-text);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.result-loss-line strong {
+  color: var(--color-danger);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .btn-shine {
@@ -1633,8 +1852,13 @@ button:focus-visible, input:focus-visible {
   background-color: rgba(26, 16, 48, 0.75);
   backdrop-filter: blur(2px);
   display: flex;
-  align-items: center;
+  /* `flex-start` + `margin: auto` on the card rather than `center`: a centered
+     flex item taller than the viewport gets its top and bottom clipped, and the
+     overflow below cannot be reached. This centres when the card fits and lets
+     it scroll from the top when it does not. */
+  align-items: flex-start;
   justify-content: center;
+  overflow-y: auto;
   padding: 16px;
   z-index: 1000;
 }
@@ -1642,12 +1866,17 @@ button:focus-visible, input:focus-visible {
 .result-card {
   width: 100%;
   max-width: 440px;
+  margin: auto;
+  max-height: calc(100dvh - 32px);
   background: var(--surface);
   border: var(--rule-thick);
   box-shadow: var(--shadow-raised-xl);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  /* `auto` rather than `hidden` so a short landscape phone can still reach
+     PLAN NEXT DELVE. Both clip to the border radius, so the title bar corners
+     stay rounded. */
+  overflow-y: auto;
 }
 
 .result-title-bar {
@@ -2070,6 +2299,18 @@ button:focus-visible, input:focus-visible {
 
   .start-delve-btn {
     min-height: 54px;
+  }
+
+  .out-of-rf-panel {
+    flex-wrap: wrap;
+  }
+
+  .out-of-rf-copy {
+    font-size: 11px;
+  }
+
+  .out-of-rf-reset-btn {
+    width: 100%;
   }
 
   .how-to-play-delve-btn {

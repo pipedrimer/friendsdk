@@ -26,36 +26,54 @@ Your selected Rare Friends miner enters a deep geological mine shaft, spending s
 ### 2. Delve Difficulty & Growing Round Multiplier
 Before each run you pick how many mines hide on the 5×5 board. The **round multiplier grows every safe dig** and **compounds your current at-risk haul** — never the stake again:
 
-> 1 RF → round 1 @ 1.22x → 1.22 RF at risk → round 2 @ 1.23x → 1.22 × 1.23 = **1.50 RF** → round 3 @ 1.25x → **1.88 RF** ...
+> 1 RF → round 1 @ 1.14x → 1.14 RF at risk → round 2 @ 1.15x → 1.14 × 1.15 = **1.31 RF** → round 3 @ 1.16x → **1.52 RF** ...
 
-Every found tile shows the exact RF it secured, and **Bank returns exactly that numbers**. More mines = bigger per-round multipliers, and the deeper you dig the higher the rate climbs:
+Every found tile shows the exact RF it secured, and **Bank returns exactly that number**. More mines = bigger per-round multipliers, and the deeper you dig the higher the rate climbs:
 
-| Preset | Mines / 25 | Tier | Start multiplier | Next rounds | Peak (full clear) |
+| Preset | Mines / 25 | Tier | Start multiplier | Next rounds | Peak (capped) |
 | --- | --- | --- | --- | --- | --- |
-| 5 | 5 | Novice | ×1.22 | 1.23 → 1.25 → 1.26 | ×31,987 |
-| 7 | 7 | Prospector | ×1.35 | 1.38 → 1.40 → 1.43 | ×304,547 |
-| 10 | 10 | Prospector | ×1.62 | 1.67 → 1.72 → 1.79 | ×2,234,760 |
-| 15 | 15 | Abyss | ×2.44 | 2.60 → 2.80 → 3.06 | ×2,537,438 |
-| 20 | 20 | Cataclysm | ×4.88 | 5.85 → 7.47 → 10.73 | ×46,812 |
-| 24 | 24 | Inferno | ×24.38 | one safe tile only | ×24.38 |
+| 5 | 5 | Novice | ×1.14 | 1.15 → 1.16 → 1.18 | ×250 |
+| 7 | 7 | Prospector | ×1.26 | 1.28 → 1.31 → 1.33 | ×250 |
+| 10 | 10 | Prospector | ×1.52 | 1.56 → 1.61 → 1.67 | ×250 |
+| 15 | 15 | Abyss | ×2.28 | 2.43 → 2.62 → 2.86 | ×250 |
+| 20 | 20 | Cataclysm | ×4.55 | 5.46 → 6.98 → 10.01 | ×250 |
+| 24 | 24 | Inferno | ×22.75 | one safe tile only | ×22.75 |
 
-The per-round multipliers are honest fair odds per survival — a difficulty's peak reflects clearing **every** safe tile, which is extremely rare (the compounding jackpot usually ends in a mine long before the full clear). The house keeps a small per-round margin (`250` bps per round in the `RULES`) so the economy is sustainable without caps or arbitrary pay tables. Difficulty persists across runs until changed on the pre-run screen.
+The per-round multipliers are fair odds per survival, discounted by a per-round
+house edge (`RULES.houseEdgeBps` = **900 bps**). Two rules keep the economy
+honest and are enforced in the engine, not just documented:
+
+- **Seam yield cap.** A delve can never pay more than **×250** of its stake
+  (`RULES.maxHaulMultipleBps`). The raw compounding curve on a 5-mine board runs
+  past ×8,000, but only ×250 is ever collectable — so the advertised peak is
+  both reachable-in-principle and fundable. The HUD shows **YIELD CAP** once the
+  haul can no longer grow, and the remaining safe tiles are only worth digging
+  for ore.
+- **Rare finds need room.** A Lucky Seam is never placed on a board with fewer
+  than three safe tiles, because a green tile there would double a single
+  enormous round — the one case a per-round house edge cannot absorb.
+
+The house edge is verified against the **best legal bank policy** on every
+selectable mine count (5–24), not one cautious bot. See
+[Economy verification](#economy-verification).
 
 ### 3. Minefield Hazards
-- 🔥💣 **Red Mine (Full Blast)**: Detonates the shaft and wipes out **100% of your At-Risk RF**. No survival roll, no rescue — a detonated hazardous mine ends the run and the whole haul is lost.
-- ⚡ **Yellow Mine (Greed Trap)**: A second hazardous blast — same rule: entire haul lost, run over.
-- 🔮 **Purple Mine (Curse)**: Dangerous; if it detonates it also destroys the whole haul.
-- 💧 **Blue Mine (Aquifer Rupture)**: Explodes and forfeits the entire haul as well.
-- 🍀 **Green Mine (Lucky Mine)**: The one benign anomaly — and a **rare find**! Doubles (2×) your current At-Risk RF on discovery.
+Each hazard is named, and the name says how it ends the run:
+
+- 💥 **Red — Curse Vein**: A pressure-burst pocket. Detonates the shaft and wipes out **100% of your At-Risk RF**. No survival roll, no rescue.
+- 💧 **Yellow — Aquifer Rupture**: A flooded pocket. Same rule: entire haul lost, run over.
+- 🔮 **Purple — Greed Trap**: Cursed bait. Same rule: the whole haul is lost.
+- ❄️ **Blue — Deep-Seam Chill**: A cold seam that simply ends the delve where it stands. Same rule: whole haul lost.
+- 🍀 **Green — Lucky Seam**: The one benign anomaly, and a **rare find**. It **doubles the round it replaces** (including any active Boost), so the round still counts: a ×2.4 round becomes ×4.8, never a flat ×2. It keeps the run alive.
 
 Any hazardous mine (red, yellow, purple, or blue) detonating without a Shield is a **live-ending wipe**. There is **no second chance** — bank early or risk everything.
 
 > **Full clear ends the run automatically.** When every safe tile has been dug
-> (only mines remain), the whole haul is **auto-banked at the peak multiplier** —
-> there is no longer any feasible safe pick, so the run concludes by securing the
-> jackpot. This matters most on **Inferno (24 mines / 25)**, where the single safe
-> tile IS the full clear: finding it on the first dig banks the ×24.38 peak and
-> ends the run immediately.
+> (only mines remain), the whole haul is **auto-banked at the capped peak
+> multiplier** — there is no longer any feasible safe pick, so the run concludes
+> by securing the jackpot. This matters most on **Inferno (24 mines / 25)**, where
+> the single safe tile IS the full clear: finding it on the first dig banks the
+> ×22.75 peak and ends the run immediately.
 
 ### 4. Tactical Rare Finds
 - **Shield** (rare find — special cache): Absorbs and neutralizes the next mine detonation encountered — the only thing standing between you and a total wipe. **Not purchasable.**
@@ -85,6 +103,57 @@ Open **GEAR** in the top bar (or the **GEAR LOCKER** card on the pre-run screen)
 | Legend Glow | Bank 100 RF total across the session |
 
 Purchases deduct exactly their listed simulated RF from the vault; an **NEW** badge on the GEAR button flags unlocks you have not viewed. Buy one, own it for the session — no recurring costs, no refunds (simulated).
+
+---
+
+## Economy verification
+
+The house edge is not asserted, it is measured. `tests/economy-sim.ts` drives the
+**real reducer** through every selectable mine count (5–24) and sweeps **eight
+legal bank policies**, including *never bank* — the greediest possible strategy,
+which rides the compounding curve to the end of a run.
+
+> An earlier version of this file only tested `bank at >= 2 RF`. That made the
+> economy look healthy while *"never bank"* actually paid the player **8% more
+> than they staked**. The check now asserts against the **best** policy found.
+
+Two properties make the check reliable:
+
+- **Paired observations.** The board and dig order do not depend on when the
+  player banks, so one pass records the whole haul trajectory and every
+  threshold is read off that same path. This is exact, not an estimate of a
+  policy, and it removes the cross-policy noise.
+- **A noise-aware gate.** On hard boards the jackpot is rare (a 23-mine board
+  clears both safe tiles about 0.4% of the time for a ~×248 payout). At 6,000
+  runs that single event swung the estimate by 16 percentage points, which
+  produced phantom failures. The gate therefore only fails when the best policy
+  beats the house by **more than two standard errors**, and the reported
+  "worst-case" edge is the pessimistic end of that band rather than the raw
+  point estimate.
+
+Run it with:
+
+```bash
+node games/rare-friend-mine/tests/run-sim.mjs              # 20,000 paired runs
+RF_MINE_SIM_RUNS=60000 node games/rare-friend-mine/tests/run-sim.mjs   # high confidence
+```
+
+At 60,000 paired runs the house wins against every legal policy on all 20 mine
+counts. Most cells settle at a **6–9%** house edge. Two cells — 20 and 23 mines,
+where the win depends on a rare ×250-class jackpot — are genuinely noisy and
+measured anywhere from **2% to 5%** across repeated runs, so no single run should
+be quoted as a precise margin. The invariant being enforced is the one in the
+table above: no mine count is player-profitable. The exit code is non-zero if
+any count fails.
+
+### Vault soft-lock recovery
+
+Losing every RF is a legal outcome, so the game must never strand a drained
+player. `canStartRun` refuses to open an unpayable run, the CTA disables with an
+**OUT OF RF** state, and a recovery panel offers **RESET SESSION**, which
+restores the 10 RF starting balance while **keeping all gear and session
+achievement progress**. It is refused mid-run, so it cannot be used to dodge a
+detonation.
 
 ---
 
@@ -124,10 +193,10 @@ node scripts/dev-game.mjs build games/rare-friend-mine
 # Typecheck the game sources
 npx tsc -p games/rare-friend-mine/tsconfig.json --noEmit
 
-# Engine unit tests (29 deterministic cases)
+# Engine unit tests (44 deterministic cases, including cap and soft-lock regressions)
 node games/rare-friend-mine/tests/run-tests.mjs
 
-# Economy Monte Carlo simulation (10,000 default runs per mine count, 5–24)
+# Economy Monte Carlo simulation (20,000 default paired runs per mine count, 5–24)
 node games/rare-friend-mine/tests/run-sim.mjs
 
 # Automated browser smoke test (mock wallet + real sandboxed runtime + Gear Locker)
